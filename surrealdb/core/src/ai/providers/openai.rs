@@ -195,7 +195,7 @@ struct ChatCompletionRequest {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	temperature: Option<f64>,
 	#[serde(skip_serializing_if = "Option::is_none")]
-	max_tokens: Option<u64>,
+	max_completion_tokens: Option<u64>,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	top_p: Option<f64>,
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -296,7 +296,7 @@ impl GenerationProvider for OpenAiProvider {
 				tool_call_id: None,
 			}],
 			temperature: config.temperature,
-			max_tokens: config.max_tokens,
+			max_completion_tokens: config.max_tokens,
 			top_p: config.top_p,
 			stop: config.stop.clone(),
 			tools: None,
@@ -348,7 +348,7 @@ impl ChatProvider for OpenAiProvider {
 			model: model.to_string(),
 			messages: Self::convert_messages(messages),
 			temperature: config.temperature,
-			max_tokens: config.max_tokens,
+			max_completion_tokens: config.max_tokens,
 			top_p: config.top_p,
 			stop: config.stop.clone(),
 			tools: None,
@@ -403,7 +403,7 @@ impl ChatProvider for OpenAiProvider {
 			model: model.to_string(),
 			messages: Self::convert_messages(messages),
 			temperature: config.temperature,
-			max_tokens: config.max_tokens,
+			max_completion_tokens: config.max_tokens,
 			top_p: config.top_p,
 			stop: config.stop.clone(),
 			tools: openai_tools,
