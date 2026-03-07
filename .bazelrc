@@ -1,0 +1,28 @@
+# Enable bzlmod support.
+common --enable_bzlmod
+
+# Add the platform name to the output directory.
+build --experimental_platform_in_output_dir
+
+# Use the blake3 digest function which is significantly faster than sha256.
+startup --digest_function=blake3
+
+# Enable the use of the platform specific config files.
+common --enable_platform_specific_config=true
+
+# Bazel Clippy configuration.
+build:clippy --aspects=@rules_rust//rust:defs.bzl%rust_clippy_aspect
+build:clippy --output_groups=+clippy_checks
+build --@rules_rust//:clippy.toml=//:.clippy.toml
+
+# Bazel Rustfmt configuration.
+build:rustfmt --aspects=@rules_rust//rust:defs.bzl%rustfmt_aspect
+build:rustfmt --output_groups=+rustfmt_checks
+build --@rules_rust//:rustfmt.toml=//:.rustfmt.toml
+
+# Formatting configuration.
+build:fmt --config=rustfmt
+
+# Linting configuration.
+build:lint --//tools/settings:lint=true
+build:lint --config=clippy

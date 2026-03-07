@@ -1,0 +1,56 @@
+module(
+    name = "surrealdb",
+)
+
+bazel_dep(
+    name = "platforms",
+    version = "1.0.0",
+)
+bazel_dep(
+    name = "bazel_skylib",
+    version = "1.8.2",
+)
+bazel_dep(
+    name = "rules_shell",
+    version = "0.6.1",
+)
+bazel_dep(
+    name = "rules_multirun",
+    version = "0.13.0",
+)
+
+bazel_dep(
+    name = "buildifier_prebuilt",
+    version = "8.2.1.2",
+    dev_dependency = True,
+)
+
+###############################################################################
+# Rust
+###############################################################################
+bazel_dep(name = "rules_rust", version = "0.69.0")
+
+RUST_EDITION = "2024"
+
+RUST_VERSION = "1.91.0"
+
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(
+    edition = RUST_EDITION,
+    versions = [RUST_VERSION],
+)
+use_repo(rust, "rust_toolchains")
+
+register_toolchains("@rust_toolchains//:all")
+
+crate = use_extension(
+    "@rules_rust//crate_universe:extensions.bzl",
+    "crate",
+)
+crate.from_cargo(
+    name = "crates_io",
+    cargo_lockfile = "//:Cargo.lock",
+    isolated = False,
+    manifests = ["//:Cargo.toml"],
+)
+use_repo(crate, "crates_io")

@@ -1,0 +1,9 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_proc_macro")
+
+rust_proc_macro(
+    name = "derive",
+    crate_name = "surrealdb_types_derive",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)

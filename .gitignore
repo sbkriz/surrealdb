@@ -37,6 +37,7 @@ Temporary Items
 # Folders
 # -----------------------------------
 
+/bazel-*
 /target/
 /lib/cache/
 /lib/store/
