@@ -1,0 +1,13 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "types",
+    crate_features = ["host"],
+    crate_name = "surrealism_types",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True) + [
+        "//surrealdb/types",
+    ],
+)

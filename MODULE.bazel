@@ -53,4 +53,14 @@ crate.from_cargo(
     isolated = False,
     manifests = ["//:Cargo.toml"],
 )
+
+# Cargo's cross-platform feature unification activates both rust_crypto
+# (WASM) and aws_lc_rs (native) on jsonwebtoken. crate_universe puts
+# rust_crypto in unconditional features but its deps only in the WASM
+# select branch. Patch the module gate to restrict to WASM targets.
+crate.annotation(
+    crate = "jsonwebtoken",
+    patch_args = ["-p1"],
+    patches = ["//third_party/patches:jsonwebtoken_native_crypto.patch"],
+)
 use_repo(crate, "crates_io")

@@ -1,0 +1,14 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "profiling",
+    srcs = ["src/main.rs"],
+    crate_name = "surrealdb_profiling",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True) + [
+        "//surrealdb",
+        "//surrealdb/types",
+    ],
+)

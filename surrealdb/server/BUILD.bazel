@@ -1,0 +1,77 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_library")
+
+# Like surrealdb-core, the server has heavy optional deps (wasm-opt, pprof)
+# that all_crate_deps() includes unconditionally. List deps explicitly.
+
+_EXTERNAL_DEPS = [
+    # Non-optional crates
+    "@crates_io//:anyhow",
+    "@crates_io//:axum",
+    "@crates_io//:axum-extra",
+    "@crates_io//:axum-server",
+    "@crates_io//:bytes",
+    "@crates_io//:clap",
+    "@crates_io//:console-subscriber",
+    "@crates_io//:dashmap",
+    "@crates_io//:futures",
+    "@crates_io//:futures-util",
+    "@crates_io//:glob",
+    "@crates_io//:http",
+    "@crates_io//:http-body",
+    "@crates_io//:hyper",
+    "@crates_io//:num_cpus",
+    "@crates_io//:opentelemetry",
+    "@crates_io//:opentelemetry-otlp",
+    "@crates_io//:opentelemetry_sdk",
+    "@crates_io//:pin-project-lite",
+    "@crates_io//:rand",
+    "@crates_io//:reqwest",
+    "@crates_io//:rustls",
+    "@crates_io//:semver",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:tempfile",
+    "@crates_io//:thiserror",
+    "@crates_io//:tokio",
+    "@crates_io//:tokio-stream",
+    "@crates_io//:tokio-util",
+    "@crates_io//:tower",
+    "@crates_io//:tower-http",
+    "@crates_io//:tower-service",
+    "@crates_io//:tracing",
+    "@crates_io//:tracing-appender",
+    "@crates_io//:tracing-opentelemetry",
+    "@crates_io//:tracing-subscriber",
+    "@crates_io//:uuid",
+    "@crates_io//:web-time",
+    # Optional deps for cli feature
+    "@crates_io//:rustyline",
+] + select({
+    "@platforms//os:linux": ["@crates_io//:nix"],
+    "@platforms//os:macos": ["@crates_io//:nix"],
+    "//conditions:default": [],
+})
+
+rust_library(
+    name = "server",
+    compile_data = ["README.md"],
+    crate_features = [
+        "storage-mem",
+        "http",
+        "cli",
+    ],
+    crate_name = "surrealdb_server",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_flags = [
+        "--cfg",
+        "storage",
+    ],
+    test_compile_data = ["Cargo.toml"],
+    visibility = ["//visibility:public"],
+    deps = _EXTERNAL_DEPS + [
+        "//surrealdb",
+        "//surrealdb/core",
+        "//surrealdb/types",
+    ],
+)

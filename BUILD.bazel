@@ -1,10 +1,47 @@
 load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+load("@crates_io//:defs.bzl", "all_crate_deps")
 load("@rules_multirun//:defs.bzl", "multirun")
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 
 exports_files([
     ".clippy.toml",
     ".rustfmt.toml",
 ])
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    data = [
+        "Cargo.lock",
+        "Cargo.toml",
+    ],
+    deps = all_crate_deps(build = True),
+)
+
+rust_binary(
+    name = "surreal",
+    srcs = glob(["src/**/*.rs"]),
+    crate_features = [
+        "storage-mem",
+        "http",
+        "cli",
+    ],
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "//surrealdb",
+        "//surrealdb/core",
+        "//surrealdb/server",
+    ],
+)
+
+rust_test(
+    name = "surreal.test",
+    testonly = True,
+    compile_data = ["Cargo.toml"],
+    crate = ":surreal",
+)
 
 buildifier(
     name = "buildfmt",

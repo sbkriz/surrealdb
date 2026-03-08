@@ -1,0 +1,12 @@
+--- a/src/crypto/mod.rs
++++ b/src/crypto/mod.rs
+@@ -20,7 +20,8 @@
+ pub mod aws_lc;
+ 
+ /// `RustCrypto` based CryptoProvider.
+-#[cfg(feature = "rust_crypto")]
++/// Restricted to WASM targets to avoid linking rust_crypto deps on native.
++#[cfg(all(feature = "rust_crypto", target_family = "wasm"))]
+ pub mod rust_crypto;
+ 
+ use crate::serialization::{b64_decode, b64_encode};

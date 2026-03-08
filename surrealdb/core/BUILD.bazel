@@ -1,0 +1,115 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_library")
+
+# surrealdb-core has many optional deps gated by features. all_crate_deps()
+# returns ALL resolved deps (including heavy native ones like rocksdb/tikv)
+# regardless of enabled features. We list deps explicitly for correctness.
+#
+# Non-optional deps + deps enabled by kv-mem and graphql features.
+
+_EXTERNAL_DEPS = [
+    # Non-optional external surreal crates
+    "@crates_io//:dmp",
+    "@crates_io//:lexicmp",
+    "@crates_io//:reblessive",
+    "@crates_io//:revision",
+    "@crates_io//:storekey",
+    "@crates_io//:vart",
+    # Non-optional other crates
+    "@crates_io//:addr",
+    "@crates_io//:ahash",
+    "@crates_io//:ammonia",
+    "@crates_io//:anyhow",
+    "@crates_io//:argon2",
+    "@crates_io//:async-channel",
+    "@crates_io//:async-stream",
+    "@crates_io//:base64",
+    "@crates_io//:bcrypt",
+    "@crates_io//:blake3",
+    "@crates_io//:bytes",
+    "@crates_io//:chrono",
+    "@crates_io//:ciborium",
+    "@crates_io//:dashmap",
+    "@crates_io//:deunicode",
+    "@crates_io//:fastnum",
+    "@crates_io//:fst",
+    "@crates_io//:futures",
+    "@crates_io//:fuzzy-matcher",
+    "@crates_io//:geo",
+    "@crates_io//:geo-types",
+    "@crates_io//:headers",
+    "@crates_io//:hex",
+    "@crates_io//:http",
+    "@crates_io//:humantime",
+    "@crates_io//:ipnet",
+    "@crates_io//:md-5",
+    "@crates_io//:mime",
+    "@crates_io//:ndarray",
+    "@crates_io//:ndarray-stats",
+    "@crates_io//:num-traits",
+    "@crates_io//:num_cpus",
+    "@crates_io//:object_store",
+    "@crates_io//:parking_lot",
+    "@crates_io//:path-clean",
+    "@crates_io//:pbkdf2",
+    "@crates_io//:phf",
+    "@crates_io//:pin-project-lite",
+    "@crates_io//:quick_cache",
+    "@crates_io//:radix_trie",
+    "@crates_io//:rand",
+    "@crates_io//:rayon",
+    "@crates_io//:regex",
+    "@crates_io//:roaring",
+    "@crates_io//:rust-stemmers",
+    "@crates_io//:rust_decimal",
+    "@crates_io//:scrypt",
+    "@crates_io//:semver",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:sha1",
+    "@crates_io//:sha2",
+    "@crates_io//:strsim",
+    "@crates_io//:subtle",
+    "@crates_io//:sysinfo",
+    "@crates_io//:thiserror",
+    "@crates_io//:tracing",
+    "@crates_io//:ulid",
+    "@crates_io//:unicase",
+    "@crates_io//:url",
+    "@crates_io//:web-time",
+    # Optional deps enabled by kv-mem feature
+    "@crates_io//:affinitypool",
+    "@crates_io//:ext-sort",
+    "@crates_io//:surrealmx",
+    "@crates_io//:tempfile",
+    # Optional deps enabled by graphql feature
+    "@crates_io//:async-graphql",
+    # Non-WASM platform deps
+    "@crates_io//:jsonwebtoken",
+    "@crates_io//:surrealdb-protocol",
+    "@crates_io//:tokio",
+    "@crates_io//:tokio-util",
+    "@crates_io//:uuid",
+]
+
+rust_library(
+    name = "core",
+    crate_features = [
+        "kv-mem",
+        "graphql",
+    ],
+    crate_name = "surrealdb_core",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_flags = [
+        "--cfg",
+        "storage",
+    ],
+    test_compile_data = [
+        "Cargo.toml",
+        "test.surql",
+    ],
+    visibility = ["//visibility:public"],
+    deps = _EXTERNAL_DEPS + [
+        "//surrealdb/types",
+    ],
+)

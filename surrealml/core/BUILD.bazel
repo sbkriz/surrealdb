@@ -1,0 +1,10 @@
+load("@crates_io//:defs.bzl", "all_crate_deps")
+load("//tools/rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "core",
+    crate_name = "surrealml_core",
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(normal = True),
+)
