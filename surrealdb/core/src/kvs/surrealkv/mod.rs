@@ -13,12 +13,18 @@ use surrealkv::{
 use sync::{BackgroundFlusher, CommitCoordinator};
 use tokio::sync::RwLock;
 
+use std::time::Duration;
+
+use chrono::{DateTime, Utc};
 use super::Direction;
 use super::api::ScanLimit;
 use super::config::{SurrealKvConfig, SyncMode};
 use super::err::{Error, Result};
 use crate::key::debug::Sprintable;
 use crate::kvs::api::Transactable;
+use crate::kvs::timestamp::{
+	BoxTimeStamp, BoxTimeStampImpl, TimeStamp, TimeStampImpl, MAX_TIMESTAMP_BYTES,
+};
 use crate::kvs::{Key, Val};
 
 const TARGET: &str = "surrealdb::core::kvs::surrealkv";
@@ -726,6 +732,59 @@ impl Transactable for Transaction {
 	/// Release the last save point.
 	async fn release_last_save_point(&self) -> Result<()> {
 		Ok(())
+	}
+
+	fn timestamp_impl(&self) -> BoxTimeStampImpl {
+		Box::new(SurrealKvTimeStampImpl)
+	}
+}
+
+struct SurrealKvTimeStamp(u64);
+
+impl TimeStamp for SurrealKvTimeStamp {
+	fn as_versionstamp(&self) -> u128 {
+		self.0 as u128
+	}
+
+	fn as_datetime(&self) -> Option<DateTime<Utc>> {
+		Some(DateTime::from_timestamp_nanos(self.0 as i64))
+	}
+
+	fn sub_checked(&self, duration: Duration) -> Option<BoxTimeStamp> {
+		let nanos: u64 = duration.as_nanos().try_into().ok()?;
+		Some(BoxTimeStamp::new(SurrealKvTimeStamp(self.0.checked_sub(nanos)?)))
+	}
+
+	fn encode<'a>(&self, bytes: &'a mut [u8; MAX_TIMESTAMP_BYTES]) -> &'a [u8] {
+		bytes[..8].copy_from_slice(&self.0.to_be_bytes());
+		&bytes[..8]
+	}
+}
+
+struct SurrealKvTimeStampImpl;
+
+impl TimeStampImpl for SurrealKvTimeStampImpl {
+	fn earliest(&self) -> BoxTimeStamp {
+		BoxTimeStamp::new(SurrealKvTimeStamp(0))
+	}
+
+	fn create_from_versionstamp(&self, version: u128) -> Option<BoxTimeStamp> {
+		Some(BoxTimeStamp::new(SurrealKvTimeStamp(version.try_into().ok()?)))
+	}
+
+	fn create_from_datetime(&self, dt: DateTime<Utc>) -> Option<BoxTimeStamp> {
+		let nanos = dt.timestamp_nanos_opt()?;
+		if nanos < 0 {
+			return None;
+		}
+		Some(BoxTimeStamp::new(SurrealKvTimeStamp(nanos as u64)))
+	}
+
+	fn decode(&self, bytes: &[u8]) -> Result<BoxTimeStamp> {
+		let bytes = <[u8; 8]>::try_from(bytes).map_err(|_| {
+			Error::TimestampInvalid("encoded timestamp not a valid length".to_string())
+		})?;
+		Ok(BoxTimeStamp::new(SurrealKvTimeStamp(u64::from_be_bytes(bytes))))
 	}
 }
 

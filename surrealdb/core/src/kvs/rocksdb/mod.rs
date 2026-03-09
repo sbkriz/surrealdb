@@ -3,7 +3,9 @@
 mod background_flusher;
 mod cnf;
 mod commit_coordinator;
+mod comparator;
 mod disk_space_manager;
+mod garbage_collector;
 mod memory_manager;
 
 use std::ops::Range;
@@ -14,10 +16,12 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use background_flusher::BackgroundFlusher;
 use commit_coordinator::CommitCoordinator;
 use disk_space_manager::{DiskSpaceManager, DiskSpaceState, TransactionState};
+use garbage_collector::GarbageCollector;
 use memory_manager::MemoryManager;
 use rocksdb::{
-	DBCompactionStyle, DBCompressionType, FlushOptions, LogLevel, OptimisticTransactionDB,
-	OptimisticTransactionOptions, Options, ReadOptions, WriteOptions, properties,
+	ColumnFamilyDescriptor, DBCompactionStyle, DBCompressionType, FlushOptions, LogLevel,
+	OptimisticTransactionDB, OptimisticTransactionOptions, Options, ReadOptions, WriteOptions,
+	properties,
 };
 use tokio::sync::Mutex;
 
@@ -28,6 +32,7 @@ use super::err::{Error, Result};
 use crate::key::debug::Sprintable;
 use crate::kvs::api::Transactable;
 use crate::kvs::ds::{Metric, Metrics};
+use crate::kvs::timestamp::HlcTimeStamp;
 use crate::kvs::{Key, Val};
 
 const TARGET: &str = "surrealdb::core::kvs::rocksdb";
@@ -35,6 +40,8 @@ const TARGET: &str = "surrealdb::core::kvs::rocksdb";
 pub struct Datastore {
 	/// The underlying RocksDB optimistic transaction database
 	db: Pin<Arc<OptimisticTransactionDB>>,
+	/// Whether user-defined timestamps (versioning) are enabled
+	versioned: bool,
 	/// Memory manager for managing memory usage
 	memory_manager: Arc<MemoryManager>,
 	/// Disk space manager for monitoring space usage and enforcing space limits
@@ -43,6 +50,8 @@ pub struct Datastore {
 	commit_coordinator: Option<Arc<CommitCoordinator>>,
 	/// Background flusher for periodically flushing WAL to disk
 	background_flusher: Option<Arc<BackgroundFlusher>>,
+	/// Garbage collector for advancing the version GC watermark
+	garbage_collector: Option<Arc<GarbageCollector>>,
 }
 
 pub struct Transaction {
@@ -50,6 +59,8 @@ pub struct Transaction {
 	done: AtomicBool,
 	/// Is the transaction writeable?
 	write: bool,
+	/// Whether user-defined timestamps (versioning) are enabled
+	versioned: bool,
 	/// The underlying datastore transaction
 	inner: Mutex<Option<rocksdb::Transaction<'static, OptimisticTransactionDB>>>,
 	/// The read options containing the Snapshot
@@ -206,6 +217,21 @@ impl Datastore {
 				)));
 			}
 		});
+		// Configure the timestamp-aware comparator for user-defined timestamps
+		let cf_opts = if config.versioned {
+			info!(target: TARGET, "Enabling user-defined timestamps (versioning)");
+			let mut cf_opts = Options::default();
+			cf_opts.set_comparator_with_ts(
+				comparator::NAME,
+				comparator::TIMESTAMP_SIZE,
+				Box::new(comparator::compare),
+				Box::new(comparator::compare_ts),
+				Box::new(comparator::compare_without_ts),
+			);
+			Some(cf_opts)
+		} else {
+			None
+		};
 		// Configure and create the memory manager
 		let memory_manager = Arc::new(MemoryManager::configure(&mut opts)?);
 		// Pre-configure the disk space manager
@@ -225,8 +251,18 @@ impl Datastore {
 		} else {
 			None
 		};
-		// Open the database
-		let db = Arc::pin(OptimisticTransactionDB::open(&opts, path)?);
+		// Open the database, using an explicit "default" column family when
+		// versioning is enabled so that cf_handle("default") is available
+		// for the garbage collector to advance the full_history_ts_low watermark.
+		let db = if let Some(cf_opts) = cf_opts {
+			// Open the database with the "default" column family
+			let descriptors = vec![ColumnFamilyDescriptor::new("default", cf_opts)];
+			// Open the database with the "default" column family
+			Arc::pin(OptimisticTransactionDB::open_cf_descriptors(&opts, path, descriptors)?)
+		} else {
+			// Open the database without a default column family
+			Arc::pin(OptimisticTransactionDB::open(&opts, path)?)
+		};
 		// Create the commit coordinator if enabled
 		let commit_coordinator = if let SyncMode::Every = config.sync_mode {
 			Some(Arc::new(CommitCoordinator::new(db.clone())?))
@@ -236,6 +272,12 @@ impl Datastore {
 		// Create the background flusher if enabled
 		let background_flusher = if let SyncMode::Interval(interval) = config.sync_mode {
 			Some(Arc::new(BackgroundFlusher::new(db.clone(), interval)?))
+		} else {
+			None
+		};
+		// Create the garbage collector if versioning with a finite retention period
+		let garbage_collector = if config.versioned && config.retention_ns > 0 {
+			Some(Arc::new(GarbageCollector::new(db.clone(), config.retention_ns)?))
 		} else {
 			None
 		};
@@ -253,10 +295,12 @@ impl Datastore {
 		// Return the datastore
 		Ok(Datastore {
 			db,
+			versioned: config.versioned,
 			memory_manager,
 			disk_space_manager,
 			background_flusher,
 			commit_coordinator,
+			garbage_collector,
 		})
 	}
 
@@ -306,6 +350,10 @@ impl Datastore {
 
 	/// Shutdown the database
 	pub(crate) async fn shutdown(&self) -> Result<()> {
+		// Wait for the garbage collector to finish
+		if let Some(garbage_collector) = &self.garbage_collector {
+			garbage_collector.shutdown()?;
+		}
 		// Wait for the background flusher to finish
 		if let Some(background_flusher) = &self.background_flusher {
 			background_flusher.shutdown()?;
@@ -361,10 +409,15 @@ impl Datastore {
 		ro.set_snapshot(&inner.snapshot());
 		ro.set_async_io(true);
 		ro.fill_cache(true);
+		// When versioned, default reads fetch the latest version
+		if self.versioned {
+			ro.set_timestamp(u64::MAX.to_le_bytes().to_vec());
+		}
 		// Create a new transaction
 		Ok(Box::new(Transaction {
 			done: AtomicBool::new(false),
 			write,
+			versioned: self.versioned,
 			inner: Mutex::new(Some(inner)),
 			read_options: ro,
 			transaction_state: Arc::new(Default::default()),
@@ -420,6 +473,26 @@ impl Transaction {
 		} else {
 			false
 		}
+	}
+
+	/// Return the appropriate ReadOptions for a versioned read.
+	/// When the datastore is versioned and a specific version is requested,
+	/// a new ReadOptions is built with that timestamp. Otherwise the
+	/// transaction's default (latest-version) ReadOptions is returned.
+	fn read_options(
+		&self,
+		version: Option<u64>,
+		inner: &rocksdb::Transaction<'_, OptimisticTransactionDB>,
+	) -> ReadOptions {
+		let mut ro = ReadOptions::default();
+		ro.set_snapshot(&inner.snapshot());
+		ro.set_async_io(true);
+		ro.fill_cache(true);
+		if self.versioned {
+			let ts = version.unwrap_or(u64::MAX);
+			ro.set_timestamp(ts.to_le_bytes().to_vec());
+		}
+		ro
 	}
 }
 
@@ -480,6 +553,11 @@ impl Transactable for Transaction {
 			.await
 			.take()
 			.ok_or_else(|| Error::Internal("expected a transaction".into()))?;
+		// When versioned, stamp all writes with the current HLC timestamp
+		if self.versioned {
+			let ts = HlcTimeStamp::next();
+			inner.set_commit_timestamp(ts.0);
+		}
 		// Always commit the RocksDB transaction on the caller thread for parallel commits
 		inner.commit()?;
 		// If we have a coordinator, wait for the grouped fsync
@@ -497,8 +575,8 @@ impl Transactable for Transaction {
 	/// Check if a key exists.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn exists(&self, key: Key, version: Option<u64>) -> Result<bool> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -510,8 +588,14 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
+		// Build the read options (with timestamp when versioned)
+		let ro = if version.is_some() {
+			self.read_options(version, inner)
+		} else {
+			self.read_options(None, inner)
+		};
 		// Get the key
-		let res = inner.get_pinned_opt(key, &self.read_options)?.is_some();
+		let res = inner.get_pinned_opt(key, &ro)?.is_some();
 		// Return result
 		Ok(res)
 	}
@@ -519,8 +603,8 @@ impl Transactable for Transaction {
 	/// Fetch a key from the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn get(&self, key: Key, version: Option<u64>) -> Result<Option<Val>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -532,8 +616,14 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
+		// Build the read options (with timestamp when versioned)
+		let ro = if version.is_some() {
+			self.read_options(version, inner)
+		} else {
+			self.read_options(None, inner)
+		};
 		// Get the key
-		let res = inner.get_opt(key, &self.read_options)?;
+		let res = inner.get_opt(key, &ro)?;
 		// Return result
 		Ok(res)
 	}
@@ -541,8 +631,8 @@ impl Transactable for Transaction {
 	/// Fetch many keys from the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(keys = keys.sprint()))]
 	async fn getm(&self, keys: Vec<Key>, version: Option<u64>) -> Result<Vec<Option<Val>>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -554,8 +644,14 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
+		// Build the read options (with timestamp when versioned)
+		let ro = if version.is_some() {
+			self.read_options(version, inner)
+		} else {
+			self.read_options(None, inner)
+		};
 		// Get the keys
-		let res = inner.multi_get_opt(keys, &self.read_options);
+		let res = inner.multi_get_opt(keys, &ro);
 		// Convert result
 		let res = res.into_iter().map(|r| r.map_err(Into::into)).collect::<Result<_>>()?;
 		// Return result
@@ -565,7 +661,7 @@ impl Transactable for Transaction {
 	/// Insert or update a key in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn set(&self, key: Key, val: Val, version: Option<u64>) -> Result<()> {
-		// RocksDB does not support versioned queries.
+		// Per-operation write timestamps are not supported
 		if version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
@@ -597,7 +693,7 @@ impl Transactable for Transaction {
 	/// Insert a key if it doesn't exist in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn put(&self, key: Key, val: Val, version: Option<u64>) -> Result<()> {
-		// RocksDB does not support versioned queries.
+		// Per-operation write timestamps are not supported
 		if version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
@@ -716,14 +812,16 @@ impl Transactable for Transaction {
 	/// Count the total number of keys within a range.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(rng = rng.sprint()))]
 	async fn count(&self, rng: Range<Key>, version: Option<u64>) -> Result<usize> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
 		}
+		// Capture versioned flag for the blocking closure
+		let versioned = self.versioned;
 		// Execute on the blocking threadpool
 		let res = affinitypool::spawn_local(move || -> Result<_> {
 			// Set the key range
@@ -741,6 +839,10 @@ impl Transactable for Transaction {
 			ro.set_iterate_upper_bound(end);
 			ro.set_async_io(true);
 			ro.fill_cache(false);
+			if versioned {
+				let ts = version.unwrap_or(u64::MAX);
+				ro.set_timestamp(ts.to_le_bytes().to_vec());
+			}
 			// Create the iterator
 			let mut iter = inner.raw_iterator_opt(ro);
 			// Seek to the start key
@@ -770,8 +872,8 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<Key>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -793,6 +895,11 @@ impl Transactable for Transaction {
 		ro.set_iterate_upper_bound(end);
 		ro.set_async_io(true);
 		ro.fill_cache(true);
+		// Enable versioning if enabled
+		if self.versioned {
+			let ts = version.unwrap_or(u64::MAX);
+			ro.set_timestamp(ts.to_le_bytes().to_vec());
+		}
 		// Create the iterator
 		let mut iter = inner.raw_iterator_opt(ro);
 		// Seek to the start key
@@ -814,8 +921,8 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<Key>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -837,6 +944,11 @@ impl Transactable for Transaction {
 		ro.set_iterate_upper_bound(end);
 		ro.set_async_io(true);
 		ro.fill_cache(true);
+		// Enable versioning if enabled
+		if self.versioned {
+			let ts = version.unwrap_or(u64::MAX);
+			ro.set_timestamp(ts.to_le_bytes().to_vec());
+		}
 		// Create the iterator
 		let mut iter = inner.raw_iterator_opt(ro);
 		// Seek to the start key
@@ -858,8 +970,8 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<(Key, Val)>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -881,6 +993,11 @@ impl Transactable for Transaction {
 		ro.set_iterate_upper_bound(end);
 		ro.set_async_io(true);
 		ro.fill_cache(true);
+		// Enable versioning if enabled
+		if self.versioned {
+			let ts = version.unwrap_or(u64::MAX);
+			ro.set_timestamp(ts.to_le_bytes().to_vec());
+		}
 		// Create the iterator
 		let mut iter = inner.raw_iterator_opt(ro);
 		// Seek to the start key
@@ -902,8 +1019,8 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<(Key, Val)>> {
-		// RocksDB does not support versioned queries.
-		if version.is_some() {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
 			return Err(Error::UnsupportedVersionedQueries);
 		}
 		// Check to see if transaction is closed
@@ -925,6 +1042,11 @@ impl Transactable for Transaction {
 		ro.set_iterate_upper_bound(end);
 		ro.set_async_io(true);
 		ro.fill_cache(true);
+		// Enable versioning if enabled
+		if self.versioned {
+			let ts = version.unwrap_or(u64::MAX);
+			ro.set_timestamp(ts.to_le_bytes().to_vec());
+		}
 		// Create the iterator
 		let mut iter = inner.raw_iterator_opt(ro);
 		// Seek to the start key

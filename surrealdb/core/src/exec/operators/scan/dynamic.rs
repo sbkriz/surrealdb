@@ -252,7 +252,7 @@ impl ExecOperator for DynamicScan {
 						Some(
 							v.cast_to::<crate::val::Datetime>()
 								.map_err(|e| anyhow::anyhow!("{e}"))?
-								.to_version_stamp()?,
+								.to_version_stamp(ctx.txn().timestamp_impl().as_ref())?,
 						)
 					}
 					None => None,
@@ -530,7 +530,7 @@ async fn resolve_table_scan_stream(
 			Some(
 				v.cast_to::<crate::val::Datetime>()
 					.map_err(|e| anyhow::anyhow!("{e}"))?
-					.to_version_stamp()?,
+					.to_version_stamp(txn.timestamp_impl().as_ref())?,
 			)
 		}
 		None => None,

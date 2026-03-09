@@ -20,18 +20,17 @@ use crate::val::{Datetime, Object, TableName, Value};
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum InfoStatement {
-	// revision discriminant override accounting for previous behavior when adding variants and
-	// removing not at the end of the enum definition.
+	/// Root information
 	Root(bool),
-
+	/// Namespace information
 	Ns(bool),
-
+	/// Database information
 	Db(bool, Option<Expr>),
-
+	/// Table information
 	Tb(Expr, bool, Option<Expr>),
 
 	User(Expr, Option<Base>, bool),
-
+	/// Index information
 	Index(Expr, Expr, bool),
 }
 
@@ -153,6 +152,8 @@ impl InfoStatement {
 				opt.is_allowed(Action::View, ResourceKind::Any, &Base::Db)?;
 				// Get the NS and DB
 				let (ns, db) = ctx.expect_ns_db_ids(opt).await?;
+				// Get the transaction
+				let txn = ctx.tx();
 				// Convert the version to u64 if present
 				let version = match version {
 					Some(v) => Some(
@@ -160,12 +161,10 @@ impl InfoStatement {
 							.await
 							.catch_return()?
 							.cast_to::<Datetime>()?
-							.to_version_stamp()?,
+							.to_version_stamp(txn.timestamp_impl().as_ref())?,
 					),
 					_ => None,
 				};
-				// Get the transaction
-				let txn = ctx.tx();
 				// Create the result set
 				let res = if *structured {
 					let object = map! {
@@ -281,6 +280,8 @@ impl InfoStatement {
 				let (ns, db) = ctx.expect_ns_db_ids(opt).await?;
 				// Compute table name
 				let tb = TableName::new(expr_to_ident(stk, ctx, opt, doc, tb, "table name").await?);
+				// Get the transaction
+				let txn = ctx.tx();
 				// Convert the version to u64 if present
 				let version = match version {
 					Some(v) => Some(
@@ -288,12 +289,10 @@ impl InfoStatement {
 							.await
 							.catch_return()?
 							.cast_to::<Datetime>()?
-							.to_version_stamp()?,
+							.to_version_stamp(txn.timestamp_impl().as_ref())?,
 					),
 					_ => None,
 				};
-				// Get the transaction
-				let txn = ctx.tx();
 				// Create the result set
 				Ok(if *structured {
 					Value::from(map! {

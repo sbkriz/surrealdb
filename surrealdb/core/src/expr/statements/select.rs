@@ -77,12 +77,13 @@ impl SelectStatement {
 		let mut iterator = Iterator::new();
 		// Ensure futures are stored and the version is set if specified
 
+		let ts_impl = ctx.tx().timestamp_impl();
 		let version = stk
 			.run(|stk| self.version.compute(stk, ctx, opt, parent_doc))
 			.await
 			.catch_return()?
 			.cast_to::<Option<Datetime>>()?
-			.map(|x| x.to_version_stamp())
+			.map(|x| x.to_version_stamp(ts_impl.as_ref()))
 			.transpose()?;
 		let opt = Arc::new(opt.clone().with_version(version));
 

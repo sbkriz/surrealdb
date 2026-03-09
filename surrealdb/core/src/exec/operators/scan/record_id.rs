@@ -194,7 +194,7 @@ impl ExecOperator for RecordIdScan {
 					Some(
 						v.cast_to::<crate::val::Datetime>()
 							.map_err(|e| anyhow::anyhow!("{e}"))?
-							.to_version_stamp()?,
+							.to_version_stamp(ctx.txn().timestamp_impl().as_ref())?,
 					)
 				}
 				None => None,
