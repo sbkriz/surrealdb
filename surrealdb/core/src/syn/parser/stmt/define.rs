@@ -925,42 +925,22 @@ impl Parser<'_> {
 			..Default::default()
 		};
 
+		let mut flexible_span = None;
+
 		loop {
 			match self.peek_kind() {
 				// FLEX, FLEXI and FLEXIBLE are all the same token type.
 				t!("FLEXIBLE") => {
 					self.pop_peek();
-					bail!("FLEXIBLE must be specified after TYPE", @self.last_span);
+					flexible_span = Some(self.last_span);
+					res.flexible = true;
 				}
 				t!("TYPE") => {
 					self.pop_peek();
 					res.field_kind = Some(stk.run(|ctx| self.parse_inner_kind(ctx)).await?);
 
-					// Check if FLEXIBLE follows TYPE
 					if self.eat(t!("FLEXIBLE")) {
-						// Validate that the field_kind contains an object
-						fn kind_contains_object(kind: &Kind) -> bool {
-							match kind {
-								Kind::Object => true,
-								Kind::Either(kinds) => kinds.iter().any(kind_contains_object),
-								Kind::Array(inner, _) | Kind::Set(inner, _) => {
-									kind_contains_object(inner)
-								}
-								Kind::Literal(KindLiteral::Object(_)) => true,
-								Kind::Literal(KindLiteral::Array(x)) => {
-									x.iter().any(kind_contains_object)
-								}
-								_ => false,
-							}
-						}
-
-						let is_valid_for_flexible =
-							res.field_kind.as_ref().is_some_and(kind_contains_object);
-
-						if !is_valid_for_flexible {
-							bail!("FLEXIBLE can only be used with types containing object", @self.last_span);
-						}
-
+						flexible_span = Some(self.last_span);
 						res.flexible = true;
 					}
 				}
@@ -1003,6 +983,23 @@ impl Parser<'_> {
 					res.computed = Some(stk.run(|stk| self.parse_expr_field(stk)).await?);
 				}
 				_ => break,
+			}
+		}
+
+		if let Some(span) = flexible_span {
+			fn kind_contains_object(kind: &Kind) -> bool {
+				match kind {
+					Kind::Object => true,
+					Kind::Either(kinds) => kinds.iter().any(kind_contains_object),
+					Kind::Array(inner, _) | Kind::Set(inner, _) => kind_contains_object(inner),
+					Kind::Literal(KindLiteral::Object(_)) => true,
+					Kind::Literal(KindLiteral::Array(x)) => x.iter().any(kind_contains_object),
+					_ => false,
+				}
+			}
+
+			if !res.field_kind.as_ref().is_some_and(kind_contains_object) {
+				bail!("FLEXIBLE can only be used with types containing object", @span);
 			}
 		}
 
