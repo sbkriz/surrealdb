@@ -18,6 +18,35 @@ language-tests/      # SurrealQL test suite (.surql files)
 tests/               # Integration tests (CLI, HTTP, WebSocket, GraphQL)
 ```
 
+## Bazel Commands
+
+We are migrating to a Bazel hybrid build system. Bazel will be used for all of the tests but the cargo based build system must continue to work and be tested in order to be able to publish to crates.io.
+
+DO NOT EVER RUN `bazel clean`; it's completely unnecessary. Only run it if there is a build error which cannot be resolved any other way.
+
+### Remote Cache (BuildBuddy)
+
+Bazel builds use BuildBuddy Cloud for remote caching. To enable locally, copy the example config and add your API key:
+
+```bash
+cp .bazelrc.user.example .bazelrc.user
+# Edit .bazelrc.user and replace YOUR_API_KEY_HERE with your key from
+# https://app.buildbuddy.io/settings/org/api-keys
+```
+
+CI enables this automatically via the `BUILDBUDDY_API_KEY` GitHub Actions secret. Build results are visible at https://app.buildbuddy.io/invocation/.
+
+```bash
+# Run all tests
+bazel test //...
+
+# Run the language tests
+bazel test //language-tests/...
+
+# Run the integration tests
+bazel test //tests/...
+```
+
 ## Common Commands
 
 ```bash

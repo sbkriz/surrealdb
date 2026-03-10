@@ -112,14 +112,17 @@ pub fn run_internal<P: AsRef<Path>>(
 	current_dir: Option<P>,
 	vars: Option<HashMap<String, String>>,
 ) -> Child {
-	let mut path = std::env::current_exe().unwrap();
-	assert!(path.pop());
-	if path.ends_with("deps") {
-		assert!(path.pop());
-	}
-
-	// Note: Cargo automatically builds this binary for integration tests.
-	path.push(format!("{}{}", env!("CARGO_PKG_NAME"), std::env::consts::EXE_SUFFIX));
+	let path = if let Ok(bin) = std::env::var("SURREAL_BIN") {
+		PathBuf::from(bin)
+	} else {
+		let mut p = std::env::current_exe().unwrap();
+		assert!(p.pop());
+		if p.ends_with("deps") {
+			assert!(p.pop());
+		}
+		p.push(format!("{}{}", env!("CARGO_PKG_NAME"), std::env::consts::EXE_SUFFIX));
+		p
+	};
 
 	let mut cmd = Command::new(path);
 	if let Some(dir) = current_dir {

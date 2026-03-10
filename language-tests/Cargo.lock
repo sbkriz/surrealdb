@@ -4380,6 +4380,7 @@ dependencies = [
  "cfg-if",
  "clap",
  "futures",
+ "jsonwebtoken",
  "reblessive",
  "revision",
  "rust_decimal",

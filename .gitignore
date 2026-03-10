@@ -38,6 +38,7 @@ Temporary Items
 # -----------------------------------
 
 /bazel-*
+.bazelrc.user
 /target/
 /lib/cache/
 /lib/store/

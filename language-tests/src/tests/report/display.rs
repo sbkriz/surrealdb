@@ -16,6 +16,18 @@ use crate::tests::TestSet;
 type Fmt<'a> = IndentFormatter<&'a mut String>;
 
 impl TestReport {
+	/// Render the test report to a string (without color codes).
+	/// Returns an empty string for clean successes.
+	pub fn display_to_string(&self, tests: &TestSet) -> String {
+		if self.grade() == TestGrade::Success && !self.is_wip() {
+			return String::new();
+		}
+		let mut buffer = String::new();
+		let mut f = Fmt::new(&mut buffer, 2);
+		f.indent(|f| self.display_grade(tests, false, f)).unwrap();
+		buffer
+	}
+
 	pub fn display(&self, tests: &TestSet, color: ColorMode) {
 		if self.grade() == TestGrade::Success && !self.is_wip() {
 			// nothing to report

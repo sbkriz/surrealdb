@@ -1,0 +1,1 @@
+# This package exists so that tiup_repo.bzl can be loaded by MODULE.bazel.

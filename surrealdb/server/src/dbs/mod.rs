@@ -841,11 +841,14 @@ mod tests {
 
 	use surrealdb_types::ToSql;
 	use test_log::test;
+	#[cfg(feature = "http")]
 	use wiremock::matchers::{method, path};
+	#[cfg(feature = "http")]
 	use wiremock::{Mock, MockServer, ResponseTemplate};
 
 	use super::*;
 
+	#[cfg(feature = "http")]
 	#[test(tokio::test(flavor = "multi_thread"))]
 	async fn test_capabilities() {
 		let server1 = {
@@ -1248,6 +1251,7 @@ mod tests {
 	fn test_dbs_capabilities_target_all() {
 		let caps = DbsCapabilities {
 			allow_all: false,
+			#[cfg(feature = "scripting")]
 			allow_scripting: false,
 			allow_guests: false,
 			allow_funcs: None,
@@ -1257,6 +1261,7 @@ mod tests {
 			allow_rpc: None,
 			allow_http: None,
 			deny_all: false,
+			#[cfg(feature = "scripting")]
 			deny_scripting: false,
 			deny_guests: false,
 			deny_funcs: None,

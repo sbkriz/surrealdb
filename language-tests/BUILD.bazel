@@ -1,0 +1,155 @@
+load("@crates_io//:defs.bzl", "aliases", "all_crate_deps")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+load("//tools/rust:language_test.bzl", "surrealql_test_suite")
+
+_S = "//tools/settings"
+
+# The surrealql-test runner binary. Features are controlled by config
+# transitions so that the same source is rebuilt per-backend.
+rust_binary(
+    name = "surrealql-test",
+    srcs = glob(["src/**/*.rs"]),
+    aliases = aliases(),
+    crate_features = select({
+        _S + ":engine_mem": [],
+        _S + ":engine_rocksdb": ["backend-rocksdb"],
+        _S + ":engine_surrealkv": ["backend-surrealkv"],
+        _S + ":engine_tikv": ["backend-tikv"],
+    }),
+    crate_name = "surrealql_test",
+    data = select({
+        _S + ":engine_tikv": ["@tiup//:tiup"],
+        "//conditions:default": [],
+    }),
+    deps = [
+        "//surrealdb/core",
+        "//surrealdb/types",
+        "@crates_io//:anyhow",
+        "@crates_io//:base64",
+        "@crates_io//:cfg-if",
+        "@crates_io//:chrono",
+        "@crates_io//:clap",
+        "@crates_io//:futures",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:reblessive",
+        "@crates_io//:rust_decimal",
+        "@crates_io//:semver",
+        "@crates_io//:serde",
+        "@crates_io//:serde_json",
+        "@crates_io//:similar",
+        "@crates_io//:tokio",
+        "@crates_io//:toml",
+        "@crates_io//:toml_edit",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Per-test configuration extracted from [env].imports in .surql files.
+# Regenerate: grep -r 'imports' tests/ --include="*.surql" | ...
+# Tests with imports, data deps, or that need special handling get entries here.
+# The "scripting" feature is enabled via config transitions in language_test.bzl.
+_CONFIG = {
+    # -- Tests that require scripting to be disabled --
+    "self_tests/no_scripting_capabilities.surql": {"skip": True},
+    # -- Tests with filesystem dependencies that don't work in the Bazel sandbox --
+    "language/statements/define/analyzer/basic.surql": {"skip": True},
+    # -- Timeout adjustments --
+    "language/planner/record_link_index.surql": {"timeout": "moderate"},
+    # -- Import configurations --
+    "access/record/signin_failed.surql": {"imports": ["access/record/basic_access_import.surql"]},
+    "access/record/signup.surql": {"imports": ["access/record/signup_import.surql"]},
+    "access/record/signup_via_auth.surql": {"imports": ["access/record/signup_import.surql"]},
+    "access/record/variables.surql": {"imports": ["access/record/basic_access_import.surql"]},
+    "access/root/variables.surql": {"imports": ["access/root/variables_import.surql"]},
+    "api/permissions/basic.surql": {"imports": ["api/permissions/setup.surql"]},
+    "harness/test_assert.surql": {"imports": ["harness/assert.surql"]},
+    "harness/test_rng.surql": {"imports": ["harness/rng.surql"]},
+    "language/expression/operators/relation/type_order_array.surql": {"imports": ["datasets/type_order.surql", "harness/assert.surql"]},
+    "language/functions/array/all.surql": {"imports": ["harness/assert.surql"]},
+    "language/functions/array/max.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/functions/array/min.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/functions/array/sort.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/functions/array/sort_asc.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/functions/array/sort_desc.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/functions/math/bottom.surql": {"imports": ["datasets/type_order.surql"]},
+    "language/graph/aliasing.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/collect_min_depth.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/cycles_bounded.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/cycles_collect.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/depth_fixed.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/depth_range.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/destructure_fields.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/destructure_nested.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/destructure_recursive.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/diamonds.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/edge_clauses.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/edge_direct_queries.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/edge_property_access.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/edge_statistics.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/filter_combined.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/filter_edge_properties.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/filter_target_nodes.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/path_collect.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/path_inclusive.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/path_path.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/path_shortest.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/recursion_deep_nesting.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/recursion_record_links.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/skill_matching.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/social_network.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/subqueries.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/timeout.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/traversal_backward.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/traversal_bidirectional.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/traversal_forward.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/traversal_multi_hop.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/wildcards.surql": {"imports": ["datasets/graph.surql"]},
+    "language/graph/wildcards_multiple_tables.surql": {"imports": ["datasets/graph.surql"]},
+    "language/idiom/possible_mistakes.surql": {"imports": ["datasets/graph.surql"]},
+    "language/permissions/dml/dml_permissions_setup.surql": {"imports": ["language/permissions/dml/dml_permissions_setup.surql"]},
+    "language/permissions/field/field_permissions_setup.surql": {"imports": ["language/permissions/field/field_permissions_setup.surql"]},
+    "language/statements/define/table/view/increment_immediate/mean.surql": {"imports": ["harness/rng.surql"]},
+    "language/statements/delete/permissions/no_select.surql": {"imports": ["language/statements/delete/permissions/no_select_import.surql"]},
+    "language/statements/delete/permissions/with_select.surql": {"imports": ["language/statements/delete/permissions/with_select_import.surql"]},
+    "language/statements/select/group/count_group_all_permissions.surql": {"imports": ["language/statements/select/group/count_group_all_permissions_import.surql"]},
+    "language/statements/select/group/count_range_permissions.surql": {"imports": ["language/statements/select/group/count_range_permissions_import.surql"]},
+    "language/statements/select/random_ordering_samples_uniform.surql": {"imports": ["harness/assert.surql"]},
+    "reproductions/5945_create_permission.surql": {"imports": ["reproductions/5945_create_permission_import.surql"]},
+    "reproductions/reentrant_permission_check_cyclic_links.surql": {"imports": ["reproductions/reentrant_permission_check_cyclic_links_import.surql"]},
+    "reproductions/skip_fetch_perms_computed_field_cycle.surql": {"imports": ["reproductions/skip_fetch_perms_computed_field_cycle_import.surql"]},
+    "reproductions/skip_fetch_perms_subquery_dereference.surql": {"imports": ["reproductions/skip_fetch_perms_subquery_dereference_import.surql"]},
+    "upgrade/basic_data.surql": {"imports": ["upgrade/basic_data_import.surql"]},
+    "upgrade/define/db.surql": {"imports": ["upgrade/define/db_import.surql"]},
+    "upgrade/define/event.surql": {"imports": ["upgrade/define/event_import.surql"]},
+    "upgrade/define/field_idiom.surql": {"imports": ["upgrade/define/field_idiom_import.surql"]},
+    "upgrade/define/field_simple_clauses.surql": {"imports": ["upgrade/define/field_simple_clauses_import.surql"]},
+    "upgrade/define/function.surql": {"imports": ["upgrade/define/function_import.surql"]},
+    "upgrade/define/ns.surql": {"imports": ["upgrade/define/ns_import.surql"]},
+    "upgrade/define/param.surql": {"imports": ["upgrade/define/param_import.surql"]},
+    "upgrade/define/table.surql": {"imports": ["upgrade/define/table_import.surql"]},
+    "upgrade/define/table_type.surql": {"imports": ["upgrade/define/table_type_import.surql"]},
+    "upgrade/define/user_base.surql": {"imports": ["upgrade/define/user_base_import.surql"]},
+    "upgrade/define/user_duration.surql": {"imports": ["upgrade/define/user_duration_import.surql"]},
+    "upgrade/define/user_roles.surql": {"imports": ["upgrade/define/user_roles_import.surql"]},
+    "upgrade/value/none_null_array.surql": {"imports": ["upgrade/value/none_null_array_import.surql"]},
+    "upgrade/value/none_null_array_v2.1.0_v2.1.5.surql": {"imports": ["upgrade/value/none_null_array_import.surql"]},
+    "upgrade/value/primitives.surql": {"imports": ["upgrade/value/primitives_import.surql"]},
+    "upgrade/value/table.surql": {"imports": ["upgrade/value/table_import.surql"]},
+}
+
+# Generate test targets: one per (.surql file, backend) plus a test_suite
+# per file that groups all backends. Only the test file and its declared
+# imports are data deps (not every .surql file).
+surrealql_test_suite(
+    name = "lang",
+    backends = [
+        "mem",
+        "surrealkv",
+        # "rocksdb",
+        "tikv",
+    ],
+    config = _CONFIG,
+    test_binary = ":surrealql-test",
+    test_files = glob(["tests/**/*.surql"]),
+    test_root = "tests",
+)

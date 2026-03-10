@@ -63,4 +63,24 @@ crate.annotation(
     patch_args = ["-p1"],
     patches = ["//third_party/patches:jsonwebtoken_native_crypto.patch"],
 )
+
+# rocksdb build script compiles C++ via cc-rs using relative include paths
+# (e.g. -I "snappy/"). Running from the crate root (rundir=".") makes these
+# resolve, but the build.rs tries `git submodule update` when it can't find
+# rocksdb/AUTHORS (which lives in runfiles, not the exec root). The patch
+# skips the git check when ROCKSDB_BAZEL_BUILD is set.
+crate.annotation(
+    crate = "surrealdb-librocksdb-sys",
+    build_script_data_glob = ["**"],
+    build_script_env = {"ROCKSDB_BAZEL_BUILD": "1"},
+    data_glob = ["**"],
+    patch_args = ["-p0"],
+    patches = ["//third_party/patches:rocksdb_sys_skip_git_in_bazel.patch"],
+)
 use_repo(crate, "crates_io")
+
+###############################################################################
+# TiKV tooling
+###############################################################################
+tiup_repo = use_repo_rule("//tools/tiup:tiup_repo.bzl", "tiup_repo")
+tiup_repo(name = "tiup")

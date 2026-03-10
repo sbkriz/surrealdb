@@ -4,7 +4,6 @@ use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::SystemTime;
 
 use anyhow::Result;
 use futures::FutureExt as _;
@@ -20,46 +19,13 @@ struct CreateInfo {
 	dir: Option<String>,
 }
 
-fn xorshift(state: &mut u32) -> u32 {
-	let mut x = *state;
-	x ^= x << 13;
-	x ^= x >> 17;
-	x ^= x << 5;
-	*state = x;
-	x
-}
-
 impl CreateInfo {
-	pub async fn new(backend: Backend) -> Result<Self> {
-		if let Backend::Memory = backend {
-			return Ok(CreateInfo {
-				id_gen: AtomicUsize::new(0),
-				backend,
-				dir: None,
-			});
-		}
-		let temp_dir = std::env::temp_dir();
-		let time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap();
-		let time = time.as_secs() ^ time.subsec_nanos() as u64;
-		let mut state = (time >> 32) as u32 ^ time as u32;
-
-		let rand = xorshift(&mut state);
-		let mut dir = temp_dir.join(format!("surreal_lang_tests_{rand}"));
-
-		while tokio::fs::metadata(&dir).await.is_ok() {
-			let rand = xorshift(&mut state);
-			dir = temp_dir.join(format!("surreal_lang_tests_{rand}"));
-		}
-
-		tokio::fs::create_dir(&dir).await?;
-
-		println!(" Using '{}' as temporary directory for datastores", dir.display());
-
-		Ok(CreateInfo {
+	fn new(backend: Backend, base_dir: Option<&Path>) -> Self {
+		CreateInfo {
 			id_gen: AtomicUsize::new(0),
 			backend,
-			dir: Some(dir.to_str().unwrap().to_string()),
-		})
+			dir: base_dir.map(|p| p.to_str().unwrap().to_string()),
+		}
 	}
 
 	pub async fn produce_ds(&self, versioned: bool) -> Result<(Datastore, Option<String>)> {
@@ -191,12 +157,12 @@ impl Permit {
 			if res.is_err() {
 				// Shutdown the panicking datastore to release resources
 				if let Err(e) = store.shutdown().await {
-					println!("Failed to shutdown panicking datastore: {e}");
+					eprintln!("Failed to shutdown panicking datastore: {e}");
 				}
 				let new_ds = match create_base_datastore().await {
 					Ok(x) => x,
 					Err(e) => {
-						println!(
+						eprintln!(
 							"Failed to create a new datastore to replace panicking datastore: {e}"
 						);
 						return res;
@@ -212,7 +178,7 @@ impl Permit {
 			// Shutdown the datastore before removing its directory to ensure all file descriptors
 			// are closed This is critical for RocksDB which can have many open file handles
 			if let Err(e) = store.shutdown().await {
-				println!("Failed to shutdown datastore before cleanup: {e}");
+				eprintln!("Failed to shutdown datastore before cleanup: {e}");
 			}
 		}
 
@@ -220,7 +186,7 @@ impl Permit {
 			// Remove the directory synchronously to ensure cleanup completes before next test
 			// This prevents file descriptor exhaustion on backends like RocksDB
 			if let Err(e) = tokio::fs::remove_dir_all(&remove_path).await {
-				println!("Failed to remove temporary directory {remove_path}: {e}");
+				eprintln!("Failed to remove temporary directory {remove_path}: {e}");
 			}
 		}
 		res
@@ -228,8 +194,8 @@ impl Permit {
 }
 
 impl Provisioner {
-	pub async fn new(num_jobs: usize, backend: Backend) -> Result<Self> {
-		let info = CreateInfo::new(backend).await?;
+	pub async fn new(num_jobs: usize, backend: Backend, base_dir: Option<&Path>) -> Result<Self> {
+		let info = CreateInfo::new(backend, base_dir);
 
 		let (send, recv) = mpsc::channel(num_jobs);
 		for _ in 0..num_jobs {
@@ -269,18 +235,9 @@ impl Provisioner {
 			// Best-effort shutdown - ignore errors since datastores may have been
 			// cleared by other tests, especially with shared datastore instances
 			if let Err(e) = datastore.shutdown().await {
-				println!("Warning: Datastore shutdown error: {e}");
+				eprintln!("Warning: Datastore shutdown error: {e}");
 			}
 		}
-
-		if let Some(dir) = self.create_info.dir.as_ref() {
-			// Best-effort cleanup - ignore errors since datastores may have been
-			// cleared by other tests, especially with shared datastore instances
-			if let Err(e) = tokio::fs::remove_dir_all(dir).await {
-				println!("Failed to clean up temporary dir: {e}");
-			}
-		}
-
 		Ok(())
 	}
 }

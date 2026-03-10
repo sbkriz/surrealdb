@@ -191,7 +191,9 @@ def _split_test_kwargs(kwargs):
     """Split test-related kwargs from the rest.
 
     Keys prefixed with "test_" are collected into a separate dict with the
-    prefix stripped (e.g. test_deps -> deps).
+    prefix stripped (e.g. test_deps -> deps). The "tags" key is shared
+    between both dicts so that tags like "manual" propagate to the
+    companion test target.
 
     Args:
         kwargs: The keyword arguments to split.
@@ -205,5 +207,8 @@ def _split_test_kwargs(kwargs):
             out_test_kwargs[key[5:]] = value
         else:
             out_kwargs[key] = value
+
+    if "tags" in out_kwargs and "tags" not in out_test_kwargs:
+        out_test_kwargs["tags"] = out_kwargs["tags"]
 
     return out_kwargs, out_test_kwargs

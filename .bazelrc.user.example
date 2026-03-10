@@ -1,0 +1,4 @@
+# Copy this file to .bazelrc.user and fill in your API key.
+# Get your key from https://app.buildbuddy.io/settings/org/api-keys
+build --config=remote-cache
+build --remote_header=x-buildbuddy-api-key=YOUR_API_KEY_HERE

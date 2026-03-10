@@ -7,6 +7,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 exports_files([
     ".clippy.toml",
     ".rustfmt.toml",
+    "Cargo.toml",
 ])
 
 cargo_build_script(
@@ -19,14 +20,41 @@ cargo_build_script(
     deps = all_crate_deps(build = True),
 )
 
+_S = "//tools/settings"
+
 rust_binary(
     name = "surreal",
     srcs = glob(["src/**/*.rs"]),
-    crate_features = [
-        "storage-mem",
-        "http",
-        "cli",
-    ],
+    crate_features = select({
+        _S + ":engine_mem": ["storage-mem"],
+        _S + ":engine_rocksdb": [
+            "storage-mem",
+            "storage-rocksdb",
+        ],
+        _S + ":engine_surrealkv": [
+            "storage-mem",
+            "storage-surrealkv",
+        ],
+        _S + ":engine_tikv": [
+            "storage-mem",
+            "storage-tikv",
+        ],
+    }) + select({
+        _S + ":http_enabled": ["http"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":scripting_enabled": ["scripting"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":graphql_enabled": ["graphql"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":cli_enabled": ["cli"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":jwks_enabled": ["jwks"],
+        "//conditions:default": [],
+    }),
     visibility = ["//visibility:public"],
     deps = all_crate_deps(normal = True) + [
         ":build_script",

@@ -1,6 +1,13 @@
-"""Build settings for the project."""
+"""Build settings for the project.
 
-load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
+These flags control which Cargo features are enabled across the workspace.
+Config transitions in tools/rust/transitions.bzl set these per-test-profile
+so that `bazel test //...` covers the full CI matrix.
+"""
+
+load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
+
+# ---- Lint setting (existing) ----
 
 bool_flag(
     name = "lint",
@@ -9,7 +16,137 @@ bool_flag(
 
 config_setting(
     name = "lint.enabled",
-    flag_values = {
-        ":lint": "true",
-    },
+    flag_values = {":lint": "true"},
+)
+
+# ---- Storage engine ----
+
+string_flag(
+    name = "storage_engine",
+    build_setting_default = "mem",
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "engine_mem",
+    flag_values = {":storage_engine": "mem"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "engine_rocksdb",
+    flag_values = {":storage_engine": "rocksdb"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "engine_surrealkv",
+    flag_values = {":storage_engine": "surrealkv"},
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "engine_tikv",
+    flag_values = {":storage_engine": "tikv"},
+    visibility = ["//visibility:public"],
+)
+
+# ---- Feature flags ----
+
+bool_flag(
+    name = "feature_http",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "http_enabled",
+    flag_values = {":feature_http": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "feature_scripting",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "scripting_enabled",
+    flag_values = {":feature_scripting": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "feature_graphql",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "graphql_enabled",
+    flag_values = {":feature_graphql": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "feature_jwks",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "jwks_enabled",
+    flag_values = {":feature_jwks": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "feature_cli",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "cli_enabled",
+    flag_values = {":feature_cli": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "feature_surrealism",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "surrealism_enabled",
+    flag_values = {":feature_surrealism": "true"},
+    visibility = ["//visibility:public"],
+)
+
+# ---- Protocol flags (SDK layer) ----
+
+bool_flag(
+    name = "protocol_http",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "protocol_http_enabled",
+    flag_values = {":protocol_http": "true"},
+    visibility = ["//visibility:public"],
+)
+
+bool_flag(
+    name = "protocol_ws",
+    build_setting_default = False,
+    visibility = ["//visibility:public"],
+)
+
+config_setting(
+    name = "protocol_ws_enabled",
+    flag_values = {":protocol_ws": "true"},
+    visibility = ["//visibility:public"],
 )

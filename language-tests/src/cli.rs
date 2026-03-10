@@ -66,6 +66,18 @@ impl Display for Backend {
 	}
 }
 
+impl Backend {
+	pub fn from_arg(s: &str) -> Result<Self, String> {
+		match s {
+			"mem" | "memory" => Ok(Backend::Memory),
+			"rocksdb" => Ok(Backend::RocksDb),
+			"surrealkv" => Ok(Backend::SurrealKv),
+			"tikv" => Ok(Backend::TikV),
+			other => Err(format!("unknown backend: {other}")),
+		}
+	}
+}
+
 #[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub enum UpgradeBackend {
 	RocksDb,

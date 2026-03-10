@@ -1,11 +1,17 @@
-load("@crates_io//:defs.bzl", "all_crate_deps")
+load("@crates_io//:defs.bzl", "aliases", "all_crate_deps")
 load("//tools/rust:defs.bzl", "rust_library")
 
-# Like surrealdb-core, the server has heavy optional deps (wasm-opt, pprof)
-# that all_crate_deps() includes unconditionally. List deps explicitly.
+_S = "//tools/settings"
 
-_EXTERNAL_DEPS = [
-    # Non-optional crates
+# Must be kept in sync with Cargo.toml workspace version.
+# Used by env!("CARGO_PKG_VERSION") in src/cnf/mod.rs.
+_VERSION = "3.1.0-alpha"
+
+# Server has heavy optional deps (wasm-opt, pprof) that all_crate_deps()
+# includes unconditionally. List deps explicitly, adding optional ones
+# via select().
+
+_BASE_DEPS = [
     "@crates_io//:anyhow",
     "@crates_io//:axum",
     "@crates_io//:axum-extra",
@@ -45,8 +51,9 @@ _EXTERNAL_DEPS = [
     "@crates_io//:tracing-subscriber",
     "@crates_io//:uuid",
     "@crates_io//:web-time",
-    # Optional deps for cli feature
-    "@crates_io//:rustyline",
+    "//surrealdb",
+    "//surrealdb/core",
+    "//surrealdb/types",
 ] + select({
     "@platforms//os:linux": ["@crates_io//:nix"],
     "@platforms//os:macos": ["@crates_io//:nix"],
@@ -55,23 +62,59 @@ _EXTERNAL_DEPS = [
 
 rust_library(
     name = "server",
+    aliases = aliases(),
     compile_data = ["README.md"],
-    crate_features = [
-        "storage-mem",
-        "http",
-        "cli",
-    ],
+    crate_features = select({
+        _S + ":engine_mem": ["storage-mem"],
+        _S + ":engine_rocksdb": [
+            "storage-mem",
+            "storage-rocksdb",
+        ],
+        _S + ":engine_surrealkv": [
+            "storage-mem",
+            "storage-surrealkv",
+        ],
+        _S + ":engine_tikv": [
+            "storage-mem",
+            "storage-tikv",
+        ],
+    }) + select({
+        _S + ":http_enabled": ["http"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":scripting_enabled": ["scripting"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":graphql_enabled": ["graphql"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":cli_enabled": ["cli"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":jwks_enabled": ["jwks"],
+        "//conditions:default": [],
+    }),
     crate_name = "surrealdb_server",
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_env = {"CARGO_PKG_VERSION": _VERSION},
     rustc_flags = [
         "--cfg",
         "storage",
     ],
     test_compile_data = ["Cargo.toml"],
-    visibility = ["//visibility:public"],
-    deps = _EXTERNAL_DEPS + [
-        "//surrealdb",
-        "//surrealdb/core",
-        "//surrealdb/types",
+    test_deps = [
+        "@crates_io//:test-log",
+        "@crates_io//:wiremock",
     ],
+    visibility = ["//visibility:public"],
+    deps = _BASE_DEPS + select({
+        _S + ":cli_enabled": ["@crates_io//:rustyline"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":graphql_enabled": [
+            "@crates_io//:async-graphql",
+            "@crates_io//:async-graphql-axum",
+        ],
+        "//conditions:default": [],
+    }),
 )

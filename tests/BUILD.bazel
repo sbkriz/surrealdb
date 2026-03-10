@@ -1,0 +1,159 @@
+"""Integration test targets using config transitions.
+
+Each target applies a transition that sets the right feature flags, so
+`bazel test //tests/...` exercises the full CI matrix.
+"""
+
+load("@rules_rust//rust:defs.bzl", "rust_test")
+load("//tools/rust:integration_test.bzl", "surrealdb_server_test", "surrealdb_test")
+
+# ---- Raw rust_test targets (compiled but not run directly) ----
+
+COMMON_SRCS = glob(["common/**/*.rs"])
+
+# Deps required by common/*.rs (socket, server, docker, rest_client, etc.)
+COMMON_DEPS = [
+    "//surrealdb/core",
+    "//surrealdb/server",
+    "@crates_io//:futures",
+    "@crates_io//:futures-util",
+    "@crates_io//:http",
+    "@crates_io//:nix",
+    "@crates_io//:rand",
+    "@crates_io//:rcgen",
+    "@crates_io//:reqwest",
+    "@crates_io//:serde",
+    "@crates_io//:serde_json",
+    "@crates_io//:tempfile",
+    "@crates_io//:thiserror",
+    "@crates_io//:tokio",
+    "@crates_io//:tokio-stream",
+    "@crates_io//:tokio-tungstenite",
+    "@crates_io//:tracing",
+    "@crates_io//:web-time",
+]
+
+# Compile-time env vars that Cargo normally provides.
+RUSTC_ENV = {
+    "CARGO_PKG_NAME": "surreal",
+    "OUT_DIR": "/tmp",
+}
+
+# These are the actual compiled test binaries. The transitioned wrapper
+# targets below are what users run via `bazel test`.
+
+rust_test(
+    name = "cli_integration_bin",
+    srcs = ["cli_integration.rs"] + COMMON_SRCS,
+    compile_data = ["//:Cargo.toml"],
+    crate_root = "cli_integration.rs",
+    rustc_env = RUSTC_ENV,
+    tags = ["manual"],
+    deps = COMMON_DEPS + [
+        "@crates_io//:assert_fs",
+        "@crates_io//:chrono",
+        "@crates_io//:jsonwebtoken",
+        "@crates_io//:test-log",
+        "@crates_io//:ulid",
+    ],
+)
+
+rust_test(
+    name = "http_integration_bin",
+    srcs = ["http_integration.rs"] + COMMON_SRCS,
+    compile_data = ["//:Cargo.toml"],
+    crate_root = "http_integration.rs",
+    rustc_env = RUSTC_ENV,
+    tags = ["manual"],
+    deps = COMMON_DEPS + [
+        "//surrealdb",
+        "@crates_io//:ciborium",
+        "@crates_io//:test-log",
+        "@crates_io//:ulid",
+    ],
+)
+
+rust_test(
+    name = "ws_integration_bin",
+    srcs = ["ws_integration.rs"] + COMMON_SRCS,
+    compile_data = ["//:Cargo.toml"],
+    crate_root = "ws_integration.rs",
+    rustc_env = RUSTC_ENV,
+    tags = ["manual"],
+    deps = COMMON_DEPS + [
+        "@crates_io//:assert_fs",
+        "@crates_io//:test-log",
+    ],
+)
+
+rust_test(
+    name = "graphql_integration_bin",
+    srcs = ["graphql_integration.rs"] + COMMON_SRCS,
+    compile_data = ["//:Cargo.toml"],
+    crate_root = "graphql_integration.rs",
+    rustc_env = RUSTC_ENV,
+    tags = ["manual"],
+    deps = COMMON_DEPS + [
+        "@crates_io//:test-log",
+        "@crates_io//:ulid",
+    ],
+)
+
+rust_test(
+    name = "reproduce_issue_6242_bin",
+    srcs = ["reproduce_issue_6242.rs"] + COMMON_SRCS,
+    compile_data = ["//:Cargo.toml"],
+    crate_root = "reproduce_issue_6242.rs",
+    rustc_env = RUSTC_ENV,
+    tags = ["manual"],
+    deps = COMMON_DEPS + [
+        "//surrealdb",
+        "//surrealdb/types",
+    ],
+)
+
+# ml_integration: gated by #[cfg(feature = "ml")] — no Bazel ml feature yet.
+# database_upgrade: gated by #[cfg(all(docker, feature = "storage-rocksdb"))]
+#   — requires Docker infrastructure, not viable in the Bazel sandbox.
+
+# ---- Server-dependent integration tests ----
+
+surrealdb_server_test(
+    name = "cli_integration",
+    timeout = "long",
+    server = "//:surreal",
+    test_binary = ":cli_integration_bin",
+    transition = "cli_integration",
+)
+
+surrealdb_server_test(
+    name = "http_integration",
+    timeout = "long",
+    server = "//:surreal",
+    test_binary = ":http_integration_bin",
+    transition = "http_integration",
+)
+
+surrealdb_server_test(
+    name = "ws_integration",
+    timeout = "long",
+    server = "//:surreal",
+    test_binary = ":ws_integration_bin",
+    transition = "ws_integration",
+)
+
+# ---- Embedded integration tests (no server needed) ----
+
+surrealdb_server_test(
+    name = "graphql_integration",
+    timeout = "long",
+    server = "//:surreal",
+    test_binary = ":graphql_integration_bin",
+    transition = "graphql_integration",
+)
+
+surrealdb_test(
+    name = "reproduce_issue_6242",
+    inner_test = ":reproduce_issue_6242_bin",
+    transition = "workspace_test",
+)

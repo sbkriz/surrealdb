@@ -75,7 +75,7 @@ surrealml-core = { workspace = true, optional = true }
 affinitypool = { workspace = true, optional = true }
 dmp.workspace = true
 indxdb = { workspace = true, optional = true }
-js = { workspace = true, features = [
+js = { version = "0.11.0", package = "rquickjs", features = [
     "array-buffer",
     "bindgen",
     "classes",

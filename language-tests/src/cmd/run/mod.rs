@@ -21,8 +21,10 @@ use crate::tests::TestSet;
 use crate::tests::report::{TestGrade, TestReport, TestTaskResult};
 use crate::tests::set::TestId;
 
+pub(crate) mod backend_service;
 mod provisioner;
 mod util;
+pub(crate) mod worker;
 
 use util::core_capabilities_from_test_config;
 
@@ -184,7 +186,8 @@ pub async fn run(color: ColorMode, matches: &ArgMatches) -> Result<()> {
 	// So unbounded is required.
 	let (report_send, mut report_recv) = mpsc::unbounded_channel();
 
-	let mut provisioner = Provisioner::new(num_jobs as usize, backend).await?;
+	let service = backend_service::BackendService::start(backend).await?;
+	let mut provisioner = Provisioner::new(num_jobs as usize, backend, service.base_dir()).await?;
 
 	println!(" Found {} tests", subset.len());
 
@@ -249,11 +252,14 @@ pub async fn run(color: ColorMode, matches: &ArgMatches) -> Result<()> {
 
 	println!();
 
-	// Shutdown all the stores.
+	// Shutdown all the stores, then the backend service.
 	if let Err(e) = provisioner.shutdown().await {
 		println!("Shutdown error: {e:?}");
 		println!();
 		println!();
+	}
+	if let Err(e) = service.stop().await {
+		eprintln!("Backend service stop error: {e:?}");
 	}
 
 	// done, report the results.

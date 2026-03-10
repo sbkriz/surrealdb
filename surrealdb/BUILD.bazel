@@ -1,14 +1,32 @@
-load("@crates_io//:defs.bzl", "all_crate_deps")
+load("@crates_io//:defs.bzl", "aliases", "all_crate_deps")
 load("//tools/rust:defs.bzl", "rust_library")
+
+_S = "//tools/settings"
 
 rust_library(
     name = "surrealdb",
+    aliases = aliases(),
+    # protocol-http and protocol-ws are always enabled because the server
+    # unconditionally imports SDK headers/ws modules.
     crate_features = [
-        "kv-mem",
+        "rustls",
         "protocol-http",
         "protocol-ws",
-        "rustls",
-    ],
+    ] + select({
+        _S + ":engine_mem": ["kv-mem"],
+        _S + ":engine_rocksdb": [
+            "kv-mem",
+            "kv-rocksdb",
+        ],
+        _S + ":engine_surrealkv": [
+            "kv-mem",
+            "kv-surrealkv",
+        ],
+        _S + ":engine_tikv": [
+            "kv-mem",
+            "kv-tikv",
+        ],
+    }),
     crate_name = "surrealdb",
     proc_macro_deps = all_crate_deps(proc_macro = True) + [
         "//surrealdb/types/derive",

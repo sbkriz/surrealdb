@@ -1,21 +1,19 @@
-load("@crates_io//:defs.bzl", "all_crate_deps")
+load("@crates_io//:defs.bzl", "aliases", "all_crate_deps")
 load("//tools/rust:defs.bzl", "rust_library")
 
-# surrealdb-core has many optional deps gated by features. all_crate_deps()
-# returns ALL resolved deps (including heavy native ones like rocksdb/tikv)
-# regardless of enabled features. We list deps explicitly for correctness.
-#
-# Non-optional deps + deps enabled by kv-mem and graphql features.
+# surrealdb-core deps are listed explicitly because all_crate_deps() pulls
+# in ALL optional deps (rocksdb, tikv, etc.) regardless of active features.
+# Deps are grouped by the feature that activates them and wired via select().
 
-_EXTERNAL_DEPS = [
-    # Non-optional external surreal crates
+_S = "//tools/settings"
+
+_BASE_DEPS = [
     "@crates_io//:dmp",
     "@crates_io//:lexicmp",
     "@crates_io//:reblessive",
     "@crates_io//:revision",
     "@crates_io//:storekey",
     "@crates_io//:vart",
-    # Non-optional other crates
     "@crates_io//:addr",
     "@crates_io//:ahash",
     "@crates_io//:ammonia",
@@ -77,39 +75,106 @@ _EXTERNAL_DEPS = [
     "@crates_io//:unicase",
     "@crates_io//:url",
     "@crates_io//:web-time",
-    # Optional deps enabled by kv-mem feature
-    "@crates_io//:affinitypool",
-    "@crates_io//:ext-sort",
-    "@crates_io//:surrealmx",
-    "@crates_io//:tempfile",
-    # Optional deps enabled by graphql feature
-    "@crates_io//:async-graphql",
-    # Non-WASM platform deps
+    # reqwest is used by both http and jwks features; include unconditionally
+    # to avoid duplication in select() branches
+    "@crates_io//:reqwest",
+    # Non-WASM platform deps (always needed on native)
     "@crates_io//:jsonwebtoken",
     "@crates_io//:surrealdb-protocol",
     "@crates_io//:tokio",
     "@crates_io//:tokio-util",
     "@crates_io//:uuid",
+    "//surrealdb/types",
 ]
+
+_KV_COMMON_DEPS = [
+    "@crates_io//:affinitypool",
+    "@crates_io//:ext-sort",
+    "@crates_io//:tempfile",
+]
+
+_KV_MEM_DEPS = _KV_COMMON_DEPS + ["@crates_io//:surrealmx"]
+
+_KV_ROCKSDB_DEPS = _KV_COMMON_DEPS + [
+    "@crates_io//:surrealmx",
+    "@crates_io//:surrealdb-rocksdb",
+]
+
+_KV_SURREALKV_DEPS = _KV_COMMON_DEPS + [
+    "@crates_io//:surrealmx",
+    "@crates_io//:surrealkv",
+]
+
+_KV_TIKV_DEPS = _KV_COMMON_DEPS + [
+    "@crates_io//:surrealmx",
+    "@crates_io//:tikv",
+]
+
+# Must be kept in sync with Cargo.toml workspace version.
+# Used by env!("CARGO_PKG_VERSION") in src/env/mod.rs.
+_VERSION = "3.1.0-alpha"
 
 rust_library(
     name = "core",
-    crate_features = [
-        "kv-mem",
-        "graphql",
-    ],
+    aliases = aliases(),
+    crate_features = select({
+        _S + ":engine_mem": ["kv-mem"],
+        _S + ":engine_rocksdb": [
+            "kv-mem",
+            "kv-rocksdb",
+        ],
+        _S + ":engine_surrealkv": [
+            "kv-mem",
+            "kv-surrealkv",
+        ],
+        _S + ":engine_tikv": [
+            "kv-mem",
+            "kv-tikv",
+        ],
+    }) + select({
+        _S + ":graphql_enabled": ["graphql"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":scripting_enabled": ["scripting"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":http_enabled": ["http"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":jwks_enabled": ["jwks"],
+        "//conditions:default": [],
+    }),
     crate_name = "surrealdb_core",
     proc_macro_deps = all_crate_deps(proc_macro = True),
+    rustc_env = {"CARGO_PKG_VERSION": _VERSION},
     rustc_flags = [
         "--cfg",
         "storage",
     ],
+    compile_data = ["Cargo.toml"],
     test_compile_data = [
         "Cargo.toml",
         "test.surql",
     ],
-    visibility = ["//visibility:public"],
-    deps = _EXTERNAL_DEPS + [
-        "//surrealdb/types",
+    test_deps = [
+        "@crates_io//:flate2",
+        "@crates_io//:rstest",
+        "@crates_io//:test-log",
     ],
+    test_proc_macro_deps = [
+        "@crates_io//:paste",
+    ],
+    visibility = ["//visibility:public"],
+    deps = _BASE_DEPS + select({
+        _S + ":engine_mem": _KV_MEM_DEPS,
+        _S + ":engine_rocksdb": _KV_ROCKSDB_DEPS,
+        _S + ":engine_surrealkv": _KV_SURREALKV_DEPS,
+        _S + ":engine_tikv": _KV_TIKV_DEPS,
+    }) + select({
+        _S + ":graphql_enabled": ["@crates_io//:async-graphql"],
+        "//conditions:default": [],
+    }) + select({
+        _S + ":scripting_enabled": ["@crates_io//:js"],
+        "//conditions:default": [],
+    }),
 )

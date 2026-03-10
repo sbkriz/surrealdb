@@ -1,0 +1,11 @@
+--- build.rs	2026-03-09 16:00:24
++++ build.rs	2026-03-09 16:00:24
+@@ -396,7 +396,7 @@
+ }
+ 
+ fn main() {
+-    if !Path::new("rocksdb/AUTHORS").exists() {
++    if !Path::new("rocksdb/AUTHORS").exists() && std::env::var("ROCKSDB_BAZEL_BUILD").is_err() {
+         update_submodules();
+     }
+     bindgen_rocksdb();
