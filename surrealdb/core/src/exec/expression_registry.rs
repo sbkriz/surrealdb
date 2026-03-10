@@ -265,6 +265,16 @@ impl ExpressionRegistry {
 	pub fn has_expressions_for_point(&self, point: ComputePoint) -> bool {
 		self.expressions.values().any(|info| info.compute_point == point)
 	}
+
+	/// Look up the internal field name for a previously registered expression.
+	///
+	/// Used by projection planning to detect when an expression was already
+	/// computed (e.g. for ORDER BY) so it can read the pre-computed value
+	/// instead of re-evaluating the expression.
+	pub fn find_internal_name(&self, expr: &Expr) -> Option<&str> {
+		let expr_sql = expr.to_sql();
+		self.expressions.get(&expr_sql).map(|info| info.internal_name.as_str())
+	}
 }
 
 // ============================================================================

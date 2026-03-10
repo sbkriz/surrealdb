@@ -367,7 +367,15 @@ impl<'ctx> Planner<'ctx> {
 	) -> Result<Arc<dyn ExecOperator>, Error> {
 		match fields {
 			Fields::Value(selector) => {
-				let expr = self.physical_expr(selector.expr).await?;
+				// If the expression was already computed (e.g. for ORDER BY),
+				// read the pre-computed field instead of re-evaluating. This
+				// prevents volatile expressions like rand() from producing
+				// values that don't match the sort order.
+				let expr = if let Some(name) = registry.find_internal_name(&selector.expr) {
+					self.physical_expr(Expr::Idiom(Idiom::field(name.to_string()))).await?
+				} else {
+					self.physical_expr(selector.expr).await?
+				};
 				Ok(Arc::new(ProjectValue::new(input, expr)) as Arc<dyn ExecOperator>)
 			}
 
