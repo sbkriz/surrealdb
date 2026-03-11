@@ -7226,6 +7226,7 @@ version = "3.1.0-alpha"
 dependencies = [
  "anyhow",
  "arbitrary",
+ "async-channel",
  "bytes",
  "castaway",
  "chrono",
@@ -7238,15 +7239,18 @@ dependencies = [
  "rand 0.8.5",
  "regex",
  "regex-syntax",
+ "reqwest 0.13.1",
  "rquickjs",
  "rstest",
  "rust_decimal",
+ "semver",
  "serde",
  "serde_json",
  "surrealdb-protocol",
  "surrealdb-types-derive",
  "tracing",
  "ulid",
+ "url",
  "uuid",
 ]
 

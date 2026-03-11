@@ -901,6 +901,79 @@ impl std::error::Error for Error {
 }
 
 // -----------------------------------------------------------------------------
+// From conversions (std and optional)
+// -----------------------------------------------------------------------------
+
+/// Allow conversion from [`std::io::Error`].
+/// Maps [`std::io::ErrorKind`] to the most appropriate typed error where possible.
+impl From<std::io::Error> for Error {
+	fn from(error: std::io::Error) -> Self {
+		use std::io::ErrorKind;
+		let msg = error.to_string();
+		match error.kind() {
+			ErrorKind::NotFound => Error::not_found(msg, None),
+			ErrorKind::AlreadyExists => Error::already_exists(msg, None),
+			ErrorKind::PermissionDenied
+			| ErrorKind::ReadOnlyFilesystem
+			| ErrorKind::ResourceBusy
+			| ErrorKind::ExecutableFileBusy => Error::not_allowed(msg, None),
+			ErrorKind::ConnectionRefused
+			| ErrorKind::ConnectionReset
+			| ErrorKind::ConnectionAborted
+			| ErrorKind::NotConnected
+			| ErrorKind::HostUnreachable
+			| ErrorKind::NetworkUnreachable
+			| ErrorKind::NetworkDown
+			| ErrorKind::TimedOut
+			| ErrorKind::BrokenPipe
+			| ErrorKind::AddrInUse
+			| ErrorKind::AddrNotAvailable
+			| ErrorKind::StaleNetworkFileHandle => Error::connection(msg, ConnectionError::ConnectionFailed),
+			ErrorKind::InvalidData | ErrorKind::UnexpectedEof => {
+				Error::serialization(msg, SerializationError::Deserialization)
+			}
+			ErrorKind::InvalidInput
+			| ErrorKind::InvalidFilename
+			| ErrorKind::NotADirectory
+			| ErrorKind::IsADirectory
+			| ErrorKind::DirectoryNotEmpty => Error::validation(msg, None),
+			_ => Error::internal(msg),
+		}
+	}
+}
+
+#[cfg(feature = "convert")]
+impl From<async_channel::RecvError> for Error {
+	fn from(error: async_channel::RecvError) -> Self {
+		Error::connection(
+			format!("Channel receive error: {}", error),
+			ConnectionError::ConnectionFailed,
+		)
+	}
+}
+
+#[cfg(feature = "convert")]
+impl From<url::ParseError> for Error {
+	fn from(error: url::ParseError) -> Self {
+		Error::validation(error.to_string(), ValidationError::InvalidRequest)
+	}
+}
+
+#[cfg(feature = "convert")]
+impl From<semver::Error> for Error {
+	fn from(error: semver::Error) -> Self {
+		Error::validation(error.to_string(), ValidationError::InvalidParams)
+	}
+}
+
+#[cfg(feature = "reqwest")]
+impl From<reqwest::Error> for Error {
+	fn from(error: reqwest::Error) -> Self {
+		Error::connection(error.to_string(), ConnectionError::ConnectionFailed)
+	}
+}
+
+// -----------------------------------------------------------------------------
 // Type conversion errors (internal to the types layer)
 // -----------------------------------------------------------------------------
 
