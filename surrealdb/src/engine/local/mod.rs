@@ -524,7 +524,7 @@ async fn export_ml(
 		.map_err(|e| crate::Error::internal(e.to_string()))?
 	else {
 		// Attempt to get the model definition
-		return Err(crate::Error::internal("Model not found".to_string()));
+		return Err(crate::Error::not_found("Model not found".to_string(), None));
 	};
 	// Export the file data in to the store
 	let mut data = surrealdb_core::obs::stream(model.hash.clone())

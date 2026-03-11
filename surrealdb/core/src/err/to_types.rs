@@ -4,8 +4,8 @@
 //! public types-layer error used over RPC and in the SDK.
 
 use surrealdb_types::{
-	AlreadyExistsError, AuthError, ConfigurationError, Error as TypesError, NotAllowedError,
-	NotFoundError, QueryError, SerializationError, ToSql, ValidationError,
+	AlreadyExistsError, AuthError, ConfigurationError, ConnectionError, Error as TypesError,
+	NotAllowedError, NotFoundError, QueryError, SerializationError, ToSql, ValidationError,
 };
 
 use crate::err::Error;
@@ -275,12 +275,17 @@ pub fn into_types_error(error: Error) -> TypesError {
 		// Thrown
 		Thrown(..) => TypesError::thrown(message),
 
+		// Connection/transport (remote request failure)
+		Http(..) => TypesError::connection(message, ConnectionError::ConnectionFailed),
+
+		// Not found (no record returned)
+		NoRecordFound => TypesError::not_found(message, None),
+
 		// Internal and everything else
 		Kvs(..) => TypesError::internal(message),
 		Internal(..) => TypesError::internal(message),
 		Unimplemented(..) => TypesError::internal(message),
 		Io(..) => TypesError::internal(message),
-		Http(..) => TypesError::internal(message),
 		Channel(..) => TypesError::internal(message),
 		CorruptedIndex(_) => TypesError::internal(message),
 		NoIndexFoundForMatch {
@@ -291,7 +296,6 @@ pub fn into_types_error(error: Error) -> TypesError {
 		FstError(_) => TypesError::internal(message),
 		ObsError(_) => TypesError::internal(message),
 		TimestampOverflow(..) => TypesError::internal(message),
-		NoRecordFound => TypesError::internal(message),
 		ApiError(error) => error.into_types_error(),
 
 		_ => TypesError::internal(message),

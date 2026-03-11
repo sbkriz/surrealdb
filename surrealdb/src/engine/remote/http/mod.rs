@@ -67,7 +67,7 @@ use serde::{Deserialize, Serialize};
 use surrealdb_core::dbs::{QueryResult, QueryResultBuilder};
 use surrealdb_core::iam::Token as CoreToken;
 use surrealdb_core::rpc::{self, DbResponse, DbResult};
-use surrealdb_types::{AuthError, NotAllowedError};
+use surrealdb_types::{AuthError, ConnectionError, NotAllowedError, SerializationError};
 #[cfg(not(target_family = "wasm"))]
 use tokio::fs::OpenOptions;
 #[cfg(not(target_family = "wasm"))]
@@ -487,10 +487,16 @@ async fn import(request: RequestBuilder, path: PathBuf) -> Result<()> {
 					"\n{}",
 					serde_json::to_string_pretty(&body).unwrap_or_else(|_| "{}".into())
 				);
-				return Err(Error::internal(format!("HTTP error: {error_msg}")));
+				return Err(Error::connection(
+					format!("HTTP error: {error_msg}"),
+					ConnectionError::ConnectionFailed,
+				));
 			}
 			Err(_) => {
-				return Err(Error::internal(format!("HTTP error: {res}")));
+				return Err(Error::connection(
+					format!("HTTP error: {res}"),
+					ConnectionError::ConnectionFailed,
+				));
 			}
 		}
 	}
@@ -500,7 +506,10 @@ async fn import(request: RequestBuilder, path: PathBuf) -> Result<()> {
 	let value: Value = surrealdb_core::rpc::format::flatbuffers::decode(&bytes)
 		.map_err(|x| format!("Failed to deserialize flatbuffers payload: {x:?}"))
 		.map_err(|e| {
-			crate::Error::internal(format!("The server returned an unexpected response: {e}"))
+			crate::Error::serialization(
+				format!("The server returned an unexpected response: {e}"),
+				SerializationError::Deserialization,
+			)
 		})?;
 
 	// Convert Value::Array to Vec<QueryResult>

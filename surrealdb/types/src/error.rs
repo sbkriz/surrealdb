@@ -884,6 +884,8 @@ pub enum ConnectionError {
 	Uninitialised,
 	/// Connect was called on an instance that is already connected.
 	AlreadyConnected,
+	/// Connection or transport failed (e.g. network error, DNS failure, WebSocket error).
+	ConnectionFailed,
 }
 
 impl fmt::Display for Error {
