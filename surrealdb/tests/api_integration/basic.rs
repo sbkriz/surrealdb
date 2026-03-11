@@ -43,11 +43,11 @@ pub async fn yuse(new_db: impl CreateDb) {
 	let (permit, db) = new_db.create_db(config).await;
 	let item = Ulid::new().to_string();
 	let err = db.create(Resource::from(item.as_str())).await.unwrap_err();
-	assert!(err.is_validation(), "expected validation error (namespace): {:?}", err);
+	assert!(err.is_validation(), "expected validation error (namespace): {err:?}");
 	assert!(err.message().contains("namespace"), "expected namespace message: {}", err.message());
 	db.use_ns(Ulid::new().to_string()).await.unwrap();
 	let err = db.create(Resource::from(item.as_str())).await.unwrap_err();
-	assert!(err.is_validation(), "expected validation error (database): {:?}", err);
+	assert!(err.is_validation(), "expected validation error (database): {err:?}");
 	assert!(err.message().contains("database"), "expected database message: {}", err.message());
 	db.use_db(item.as_str()).await.unwrap();
 	db.create(Resource::from(item)).await.unwrap();
@@ -61,7 +61,7 @@ pub async fn invalidate(new_db: impl CreateDb) {
 	drop(permit);
 	db.invalidate().await.unwrap();
 	let error = db.create::<Option<ApiRecordId>>(("user", "john")).await.unwrap_err();
-	assert!(error.is_not_allowed(), "Unexpected error (expected NotAllowed): {:?}", error);
+	assert!(error.is_not_allowed(), "Unexpected error (expected NotAllowed): {error:?}");
 }
 
 pub async fn signup_record(new_db: impl CreateDb) {

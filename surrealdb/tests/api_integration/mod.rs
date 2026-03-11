@@ -457,7 +457,7 @@ mod mem {
 			})
 			.await
 			.unwrap_err();
-		assert!(err.is_not_allowed(), "expected auth (NotAllowed) error: {}", err);
+		assert!(err.is_not_allowed(), "expected auth (NotAllowed) error: {err}");
 	}
 
 	#[test_log::test(tokio::test)]
@@ -470,7 +470,7 @@ mod mem {
 		db.use_ns("namespace").use_db("database").await.unwrap();
 		let res = db.create(Resource::from("item:foo")).await;
 		let err = res.unwrap_err();
-		assert!(err.is_not_allowed(), "expected permissions (NotAllowed) error, got: {}", err);
+		assert!(err.is_not_allowed(), "expected permissions (NotAllowed) error, got: {err}");
 	}
 
 	#[test_log::test(tokio::test)]

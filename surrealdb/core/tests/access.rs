@@ -772,7 +772,7 @@ the database name matches", 			),
 					assert_ne!(res.unwrap(), Value::Array(Array::new()), "{}", msg);
 				} else {
 					let err = res.unwrap_err();
-					assert!(err.is_not_allowed(), "{}: expected NotAllowed, got {}", msg, err)
+					assert!(err.is_not_allowed(), "{msg}: expected NotAllowed, got {err}")
 				}
 			}
 		}

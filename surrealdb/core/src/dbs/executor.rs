@@ -1380,7 +1380,7 @@ mod tests {
 					assert!(res.is_ok(), "{}: {:?}", msg, res);
 				} else {
 					let err = res.unwrap_err();
-					assert!(err.is_not_allowed(), "{}: expected NotAllowed error, got {}", msg, err)
+					assert!(err.is_not_allowed(), "{msg}: expected NotAllowed error, got {err}")
 				}
 			}
 		}

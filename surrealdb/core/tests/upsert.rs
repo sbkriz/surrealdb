@@ -639,7 +639,7 @@ async fn common_permissions_checks(auth_enabled: bool) {
 			} else {
 				// Not allowed to create a table
 				let err = res.unwrap_err();
-				assert!(err.is_not_allowed(), "{}: expected NotAllowed, got {}", msg, err)
+				assert!(err.is_not_allowed(), "{msg}: expected NotAllowed, got {err}")
 			}
 		}
 
