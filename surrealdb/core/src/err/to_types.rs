@@ -10,6 +10,7 @@ use surrealdb_types::{
 
 use crate::err::Error;
 use crate::iam::Error as IamErrorKind;
+use crate::kvs::Error as KvsError;
 
 /// Converts a core database error into the public wire-friendly error type.
 ///
@@ -281,8 +282,31 @@ pub fn into_types_error(error: Error) -> TypesError {
 		// Not found (no record returned)
 		NoRecordFound => TypesError::not_found(message, None),
 
+		// KVS: preserve type information for wire and client retry/UX
+		Kvs(kvs_err) => match kvs_err {
+			KvsError::TransactionConflict(_) => {
+				TypesError::query(message, QueryError::TransactionConflict)
+			}
+			KvsError::ConnectionFailed(_) => {
+				TypesError::connection(message, ConnectionError::ConnectionFailed)
+			}
+			KvsError::TransactionKeyAlreadyExists => TypesError::already_exists(message, None),
+			KvsError::ReadAndDeleteOnly => TypesError::not_allowed(message, None),
+			KvsError::TransactionTooLarge | KvsError::TransactionKeyTooLarge => {
+				TypesError::validation(message, ValidationError::InvalidParams)
+			}
+			KvsError::TransactionFinished
+			| KvsError::TransactionReadonly
+			| KvsError::TransactionConditionNotMet => TypesError::query(message, None),
+			KvsError::UnsupportedVersionedQueries => TypesError::configuration(message, None),
+			KvsError::Datastore(_)
+			| KvsError::Transaction(_)
+			| KvsError::TimestampInvalid(_)
+			| KvsError::Internal(_)
+			| KvsError::CompactionNotSupported => TypesError::internal(message),
+		},
+
 		// Internal and everything else
-		Kvs(..) => TypesError::internal(message),
 		Internal(..) => TypesError::internal(message),
 		Unimplemented(..) => TypesError::internal(message),
 		Io(..) => TypesError::internal(message),

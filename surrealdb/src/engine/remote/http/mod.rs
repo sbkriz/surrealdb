@@ -67,7 +67,9 @@ use serde::{Deserialize, Serialize};
 use surrealdb_core::dbs::{QueryResult, QueryResultBuilder};
 use surrealdb_core::iam::Token as CoreToken;
 use surrealdb_core::rpc::{self, DbResponse, DbResult};
-use surrealdb_types::{AuthError, ConnectionError, NotAllowedError, SerializationError};
+use surrealdb_types::{AuthError, NotAllowedError};
+#[cfg(not(target_family = "wasm"))]
+use surrealdb_types::{ConnectionError, SerializationError};
 #[cfg(not(target_family = "wasm"))]
 use tokio::fs::OpenOptions;
 #[cfg(not(target_family = "wasm"))]
