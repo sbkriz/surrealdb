@@ -1,9 +1,10 @@
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use surrealism_types::err::{PrefixErr, SurrealismError, SurrealismResult};
 use tar::Archive;
+use tempfile::TempDir;
 use zstd::stream::read::Decoder;
 
 use crate::config::{AbiVersion, SurrealismConfig};
@@ -29,10 +30,51 @@ pub fn detect_module_kind(wasm: &[u8]) -> ModuleKind {
 	}
 }
 
+/// The tar path prefix used for filesystem attachments inside the archive.
+const FS_PREFIX: &str = "surrealism/fs/";
+
 pub struct SurrealismPackage {
 	pub config: SurrealismConfig,
 	pub wasm: Vec<u8>,
 	pub kind: ModuleKind,
+	/// Extracted filesystem directory from the archive. Present when the
+	/// archive contained `surrealism/fs/` entries. The `TempDir` handle keeps
+	/// the directory alive and cleans it up on drop.
+	pub fs: Option<TempDir>,
+}
+
+/// Options controlling how `from_reader` extracts filesystem entries.
+pub struct UnpackOptions<'a> {
+	/// Base directory for creating temp dirs (e.g. server's `--temporary-directory`).
+	/// Takes priority when set.
+	pub temp_base: Option<&'a Path>,
+	/// Prefix for the temp directory name (e.g. `SURREAL_MODFS_ns_db_mod_`).
+	pub temp_prefix: &'a str,
+}
+
+impl Default for UnpackOptions<'_> {
+	fn default() -> Self {
+		Self {
+			temp_base: None,
+			temp_prefix: "SURREAL_MODFS_local_",
+		}
+	}
+}
+
+/// Create a `TempDir` following the priority: configured base > system temp.
+/// Returns an error if neither succeeds.
+fn create_temp_dir(opts: &UnpackOptions<'_>) -> SurrealismResult<TempDir> {
+	let mut builder = tempfile::Builder::new();
+	builder.prefix(opts.temp_prefix);
+	if let Some(base) = opts.temp_base {
+		if let Ok(dir) = builder.tempdir_in(base) {
+			return Ok(dir);
+		}
+	}
+	builder.tempdir().prefix_err(|| {
+		"Failed to create temporary directory for module filesystem. \
+		 Configure --temporary-directory or ensure the system temp directory is writable"
+	})
 }
 
 impl SurrealismPackage {
@@ -49,46 +91,67 @@ impl SurrealismPackage {
 		}
 
 		let archive_file = File::open(file).prefix_err(|| "Failed to open archive file")?;
-		SurrealismPackage::from_reader(archive_file)
+		Self::from_reader(archive_file, &UnpackOptions::default())
 	}
 
-	pub fn from_reader<R: Read>(reader: R) -> SurrealismResult<Self> {
+	pub fn from_reader<R: Read>(reader: R, opts: &UnpackOptions<'_>) -> SurrealismResult<Self> {
 		let zstd_decoder =
 			Decoder::new(BufReader::new(reader)).prefix_err(|| "Failed to create zstd decoder")?;
 		let mut archive = Archive::new(zstd_decoder);
 
 		let mut wasm: Option<Vec<u8>> = None;
 		let mut config: Option<SurrealismConfig> = None;
+		let mut fs_dir: Option<TempDir> = None;
 
 		for entry in archive.entries().prefix_err(|| "Failed to read archive entries")? {
 			let mut entry = entry.prefix_err(|| "Failed to read archive entry")?;
-			let path = entry.path().prefix_err(|| "Failed to get entry path")?;
+			let entry_path = entry.path().prefix_err(|| "Failed to get entry path")?;
+			let entry_str = entry_path.to_string_lossy().to_string();
 
-			match path.to_string_lossy() {
-				path if path.ends_with("mod.wasm") => {
-					let mut buffer = Vec::new();
-					entry
-						.read_to_end(&mut buffer)
-						.prefix_err(|| "Failed to read WASM file from archive")?;
-					wasm = Some(buffer);
-				}
-				path if path.ends_with("surrealism.toml") => {
-					let mut buffer = String::new();
-					entry
-						.read_to_string(&mut buffer)
-						.prefix_err(|| "Failed to read config file from archive")?;
-					config = Some(
-						SurrealismConfig::parse(&buffer)
-							.prefix_err(|| "Failed to parse surrealism.toml")?,
-					);
-				}
-				_ => {
+			if entry_str.ends_with("mod.wasm") {
+				let mut buffer = Vec::new();
+				entry
+					.read_to_end(&mut buffer)
+					.prefix_err(|| "Failed to read WASM file from archive")?;
+				wasm = Some(buffer);
+			} else if entry_str.ends_with("surrealism.toml") {
+				let mut buffer = String::new();
+				entry
+					.read_to_string(&mut buffer)
+					.prefix_err(|| "Failed to read config file from archive")?;
+				config = Some(
+					SurrealismConfig::parse(&buffer)
+						.prefix_err(|| "Failed to parse surrealism.toml")?,
+				);
+			} else if let Some(rel) = entry_str.strip_prefix(FS_PREFIX) {
+				if rel.is_empty() || rel.ends_with('/') {
 					continue;
 				}
-			}
+				let is_dir = entry
+					.header()
+					.entry_type()
+					.is_dir();
+				if is_dir {
+					continue;
+				}
 
-			if wasm.is_some() && config.is_some() {
-				break;
+				let dir = match fs_dir {
+					Some(ref dir) => dir,
+					None => {
+						fs_dir = Some(create_temp_dir(opts)?);
+						fs_dir.as_ref().unwrap()
+					}
+				};
+
+				let dest = dir.path().join(rel);
+				if let Some(parent) = dest.parent() {
+					fs::create_dir_all(parent)
+						.prefix_err(|| "Failed to create directory for fs entry")?;
+				}
+				let mut out_file = File::create(&dest)
+					.prefix_err(|| format!("Failed to create fs file: {}", rel))?;
+				std::io::copy(&mut entry, &mut out_file)
+					.prefix_err(|| format!("Failed to write fs file: {}", rel))?;
 			}
 		}
 
@@ -101,9 +164,6 @@ impl SurrealismPackage {
 			AbiVersion::P1 => ModuleKind::CoreModule,
 			AbiVersion::P2 => {
 				if detected == ModuleKind::CoreModule {
-					// Config says P2 but bytes are a core module. The config default
-					// is P2, so older packages that predate the `abi` field will land
-					// here. Fall back to what the bytes actually contain.
 					ModuleKind::CoreModule
 				} else {
 					ModuleKind::Component
@@ -115,10 +175,11 @@ impl SurrealismPackage {
 			config,
 			wasm,
 			kind,
+			fs: fs_dir,
 		})
 	}
 
-	pub fn pack(&self, output: PathBuf) -> SurrealismResult<()> {
+	pub fn pack(&self, output: PathBuf, fs_dir: Option<&Path>) -> SurrealismResult<()> {
 		if output.extension().and_then(|s| s.to_str()) != Some("surli") {
 			return Err(SurrealismError::Other(anyhow::anyhow!(
 				"Output file must have .surli extension"
@@ -145,6 +206,12 @@ impl SurrealismPackage {
 		archive
 			.append_data(&mut config_header, "surrealism/surrealism.toml", &mut config_reader)
 			.prefix_err(|| "Failed to add surrealism.toml to archive")?;
+
+		if let Some(dir) = fs_dir {
+			archive
+				.append_dir_all("surrealism/fs", dir)
+				.prefix_err(|| "Failed to add filesystem directory to archive")?;
+		}
 
 		let encoder = archive.into_inner().prefix_err(|| "Failed to get encoder from archive")?;
 		encoder.finish().prefix_err(|| "Failed to finish zstd encoder")?;

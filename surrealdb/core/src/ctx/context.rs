@@ -12,7 +12,7 @@ use async_channel::Sender;
 #[cfg(feature = "surrealism")]
 use surrealism_runtime::controller::Runtime;
 #[cfg(feature = "surrealism")]
-use surrealism_runtime::package::SurrealismPackage;
+use surrealism_runtime::package::{SurrealismPackage, UnpackOptions};
 #[cfg(feature = "http")]
 use url::Url;
 use web_time::Instant;
@@ -978,7 +978,17 @@ impl Context {
 					bail!("file not found");
 				};
 
-				let package = SurrealismPackage::from_reader(std::io::Cursor::new(surli))?;
+				let safe_key = key.to_string().replace(['/', '\\'], "_");
+				let temp_prefix = format!("SURREAL_MODFS_{ns}_{db}_{safe_key}_");
+				let unpack_opts = UnpackOptions {
+					#[cfg(storage)]
+					temp_base: self.temporary_directory().map(|p| p.as_path()),
+					#[cfg(not(storage))]
+					temp_base: None,
+					temp_prefix: &temp_prefix,
+				};
+				let package =
+					SurrealismPackage::from_reader(std::io::Cursor::new(surli), &unpack_opts)?;
 				let runtime = Arc::new(Runtime::new(package)?);
 
 				Ok(runtime)

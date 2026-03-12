@@ -10,7 +10,9 @@ mod surrealism_integration {
 	use std::time::Duration;
 
 	use serde::Deserialize;
-	use surrealism_runtime::config::{AbiVersion, SurrealismConfig, SurrealismMeta};
+	use surrealism_runtime::config::{
+		AbiVersion, SurrealismAttach, SurrealismConfig, SurrealismMeta,
+	};
 	use surrealism_runtime::package::{SurrealismPackage, detect_module_kind};
 	use test_log::test;
 	use ulid::Ulid;
@@ -60,6 +62,9 @@ mod surrealism_integration {
 		let wasm = std::fs::read(&wasm_path).expect("Failed to read demo.wasm");
 		let kind = detect_module_kind(&wasm);
 
+		let fs_dir = workspace_root.join("surrealism/demo/fs");
+		let has_fs = fs_dir.is_dir();
+
 		let config = SurrealismConfig {
 			meta: SurrealismMeta {
 				organisation: "surrealdb".to_string(),
@@ -68,16 +73,29 @@ mod surrealism_integration {
 			},
 			capabilities: Default::default(),
 			abi,
+			attach: SurrealismAttach {
+				fs: if has_fs {
+					Some("fs".to_string())
+				} else {
+					None
+				},
+			},
 		};
 
 		let package = SurrealismPackage {
 			config,
 			wasm,
 			kind,
+			fs: None,
 		};
 
 		let output = output_dir.join("demo.surli");
-		package.pack(output.clone()).expect("Failed to pack demo.surli");
+		let fs_pack_dir = if has_fs {
+			Some(fs_dir.as_path())
+		} else {
+			None
+		};
+		package.pack(output.clone(), fs_pack_dir).expect("Failed to pack demo.surli");
 		assert!(output.exists(), "demo.surli not created at {}", output.display());
 	}
 
@@ -272,5 +290,103 @@ mod surrealism_integration {
 	#[test(tokio::test)]
 	async fn module_result_type_handling_p2() -> Result<(), Box<dyn std::error::Error>> {
 		check_result_type_handling(&DEMO_DIR_P2.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Filesystem attach tests
+	// -------------------------------------------------------------------
+
+	async fn check_fs_read(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// read_greeting() should return the contents of /greeting.txt
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::read_greeting();").await;
+		assert_eq!(results[0].status, "OK", "read_greeting: {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!("Hello from the attached filesystem!"));
+
+		// read_config_version() should parse /data/config.json and return version
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::read_config_version();").await;
+		assert_eq!(results[0].status, "OK", "read_config_version: {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(1));
+
+		// list_fs_root() should list the root directory entries
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::list_fs_root();").await;
+		assert_eq!(results[0].status, "OK", "list_fs_root: {:?}", results[0].result);
+		let entries = results[0].result.as_array().expect("list_fs_root should return array");
+		assert!(
+			entries.contains(&serde_json::json!("greeting.txt")),
+			"root should contain greeting.txt, got: {entries:?}"
+		);
+		assert!(
+			entries.contains(&serde_json::json!("data")),
+			"root should contain data/, got: {entries:?}"
+		);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_fs_read_p1() -> Result<(), Box<dyn std::error::Error>> {
+		check_fs_read(&DEMO_DIR_P1.canonical).await
+	}
+
+	#[test(tokio::test)]
+	async fn module_fs_read_p2() -> Result<(), Box<dyn std::error::Error>> {
+		check_fs_read(&DEMO_DIR_P2.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Pack/unpack round-trip test (unit-level, no server needed)
+	// -------------------------------------------------------------------
+
+	#[test]
+	fn pack_unpack_preserves_fs() {
+		let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let fs_dir = workspace_root.join("surrealism/demo/fs");
+		if !fs_dir.is_dir() {
+			panic!("surrealism/demo/fs directory not found");
+		}
+
+		let config = SurrealismConfig {
+			meta: SurrealismMeta {
+				organisation: "test".to_string(),
+				name: "roundtrip".to_string(),
+				version: semver::Version::new(0, 1, 0),
+			},
+			capabilities: Default::default(),
+			abi: AbiVersion::P2,
+			attach: SurrealismAttach {
+				fs: Some("fs".to_string()),
+			},
+		};
+
+		let package = SurrealismPackage {
+			config,
+			wasm: vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
+			kind: surrealism_runtime::package::ModuleKind::CoreModule,
+			fs: None,
+		};
+
+		let tmp = tempfile::TempDir::new().expect("Failed to create temp dir");
+		let surli_path = tmp.path().join("test.surli");
+		package.pack(surli_path.clone(), Some(&fs_dir)).expect("pack failed");
+
+		let unpacked = SurrealismPackage::from_file(surli_path).expect("from_file failed");
+
+		assert!(unpacked.fs.is_some(), "unpacked package should have fs");
+		let fs_temp = unpacked.fs.as_ref().unwrap();
+		let greeting =
+			std::fs::read_to_string(fs_temp.path().join("greeting.txt")).expect("read greeting");
+		assert_eq!(greeting, "Hello from the attached filesystem!");
+
+		let config_json =
+			std::fs::read_to_string(fs_temp.path().join("data/config.json")).expect("read config");
+		assert!(config_json.contains("\"version\":1"), "config.json should contain version:1");
+
+		assert!(unpacked.config.attach.fs.is_some(), "config should preserve attach.fs");
 	}
 }

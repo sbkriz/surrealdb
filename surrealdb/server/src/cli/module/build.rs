@@ -30,13 +30,15 @@ pub async fn init(path: Option<PathBuf>, out: Option<PathBuf>, debug: bool) -> R
 
 	// Pack the optimized WASM into a Surrealism package
 	let kind = detect_module_kind(&wasm);
+	let fs_dir = resolve_attach_fs(&path, &config)?;
 	let package = SurrealismPackage {
 		config,
 		wasm,
 		kind,
+		fs: None,
 	};
 	let out = resolve_output_path(out, &package.config)?;
-	package.pack(out).prefix_err(|| "Failed to pack Surrealism package")?;
+	package.pack(out, fs_dir.as_deref()).prefix_err(|| "Failed to pack Surrealism package")?;
 
 	Ok(())
 }
@@ -328,6 +330,40 @@ fn metadata(path: &PathBuf) -> Result<serde_json::Value> {
 		String::from_utf8(output.stdout).prefix_err(|| "Invalid UTF-8 in cargo metadata output")?;
 
 	Ok(serde_json::from_str(&metadata_str).prefix_err(|| "Failed to parse cargo metadata JSON")?)
+}
+
+/// Resolve the `[attach] fs` directory path from the config.
+///
+/// Returns `Some(path)` when a filesystem directory should be bundled, or
+/// `None` when no `[attach] fs` is configured.
+fn resolve_attach_fs(project_root: &Path, config: &SurrealismConfig) -> Result<Option<PathBuf>> {
+	let Some(ref fs_value) = config.attach.fs else {
+		return Ok(None);
+	};
+
+	let fs_path = PathBuf::from(fs_value);
+	let resolved = if fs_path.is_absolute() {
+		fs_path
+	} else {
+		project_root.join(&fs_path)
+	};
+
+	if !resolved.exists() {
+		anyhow::bail!(
+			"Attached filesystem directory not found: {} (resolved to {})",
+			fs_value,
+			resolved.display()
+		);
+	}
+	if !resolved.is_dir() {
+		anyhow::bail!(
+			"Attached filesystem path is not a directory: {} (resolved to {})",
+			fs_value,
+			resolved.display()
+		);
+	}
+
+	Ok(Some(resolved))
 }
 
 /// Resolve the output path for the `.surrealism` package, defaulting to

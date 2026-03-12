@@ -36,6 +36,7 @@ use async_trait::async_trait;
 use surrealism_types::args::Args;
 use surrealism_types::err::{PrefixErr, SurrealismError, SurrealismResult};
 use surrealism_types::transfer::AsyncTransfer;
+use tempfile::TempDir;
 use wasmtime::component::ResourceTable;
 use wasmtime::*;
 use wasmtime_wasi::p1::{self, WasiP1Ctx};
@@ -117,11 +118,24 @@ impl fmt::Debug for RuntimeKind {
 
 /// Compiled WASM runtime. Thread-safe, can be shared across threads via Arc.
 /// Compiles WASM once, then each controller gets its own isolated Store/Instance.
-#[derive(Debug)]
 pub struct Runtime {
 	inner: RuntimeKind,
 	config: Arc<SurrealismConfig>,
 	wasm_size: usize,
+	/// Holds the extracted filesystem directory alive for the lifetime of the runtime.
+	/// When present, this directory is mounted as a read-only preopened dir for WASM modules.
+	fs_dir: Option<TempDir>,
+}
+
+impl fmt::Debug for Runtime {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Runtime")
+			.field("inner", &self.inner)
+			.field("config", &self.config)
+			.field("wasm_size", &self.wasm_size)
+			.field("fs_dir", &self.fs_dir.as_ref().map(|d| d.path()))
+			.finish()
+	}
 }
 
 fn build_engine_config() -> Config {
@@ -145,6 +159,7 @@ impl Runtime {
 			wasm,
 			config,
 			kind,
+			fs,
 		}: SurrealismPackage,
 	) -> SurrealismResult<Self> {
 		let config = Arc::new(config);
@@ -159,6 +174,7 @@ impl Runtime {
 			inner,
 			config,
 			wasm_size,
+			fs_dir: fs,
 		})
 	}
 
@@ -210,13 +226,15 @@ impl Runtime {
 		&self,
 		context: Box<dyn InvocationContext>,
 	) -> SurrealismResult<Controller> {
+		let fs_root = self.fs_dir.as_ref().map(|d| d.path());
+
 		match &self.inner {
 			RuntimeKind::P1 {
 				engine,
 				module,
 				linker,
 			} => {
-				let wasi_ctx = super::wasi_context::build_p1()?;
+				let wasi_ctx = super::wasi_context::build_p1(fs_root)?;
 				let store_data = P1StoreData {
 					wasi: wasi_ctx,
 					config: self.config.clone(),
@@ -253,7 +271,7 @@ impl Runtime {
 				component,
 				linker,
 			} => {
-				let (wasi_ctx, table) = super::wasi_context::build_p2()?;
+				let (wasi_ctx, table) = super::wasi_context::build_p2(fs_root)?;
 				let store_data = P2StoreData {
 					wasi: wasi_ctx,
 					table,

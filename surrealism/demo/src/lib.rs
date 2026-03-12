@@ -191,6 +191,33 @@ fn test_none_value() -> Result<Vec<surrealdb_types::Value>> {
 	Ok(vec![surrealdb_types::Value::None])
 }
 
+#[surrealism]
+fn read_greeting() -> Result<String> {
+	std::fs::read_to_string("/greeting.txt")
+		.map_err(|e| anyhow::anyhow!("Failed to read /greeting.txt: {e}"))
+}
+
+#[surrealism]
+fn read_config_version() -> Result<i64> {
+	let raw = std::fs::read_to_string("/data/config.json")
+		.map_err(|e| anyhow::anyhow!("Failed to read /data/config.json: {e}"))?;
+	let parsed: serde_json::Value = serde_json::from_str(&raw)
+		.map_err(|e| anyhow::anyhow!("Failed to parse config.json: {e}"))?;
+	parsed["version"]
+		.as_i64()
+		.ok_or_else(|| anyhow::anyhow!("version field missing or not an integer"))
+}
+
+#[surrealism]
+fn list_fs_root() -> Result<Vec<String>> {
+	let mut entries: Vec<String> = std::fs::read_dir("/")
+		.map_err(|e| anyhow::anyhow!("Failed to read /: {e}"))?
+		.filter_map(|entry| entry.ok().map(|e| e.file_name().to_string_lossy().to_string()))
+		.collect();
+	entries.sort();
+	Ok(entries)
+}
+
 #[cfg(feature = "p2")]
 mod p2_dispatch {
 	struct Plugin;
@@ -208,6 +235,9 @@ mod p2_dispatch {
 				"test_kv" => super::__sr_p2_invoke_test_kv(&args),
 				"test_io" => super::__sr_p2_invoke_test_io(&args),
 				"test_none_value" => super::__sr_p2_invoke_test_none_value(&args),
+				"read_greeting" => super::__sr_p2_invoke_read_greeting(&args),
+				"read_config_version" => super::__sr_p2_invoke_read_config_version(&args),
+				"list_fs_root" => super::__sr_p2_invoke_list_fs_root(&args),
 				_ => Err(format!("Unknown function: {name}")),
 			}
 		}
@@ -223,6 +253,9 @@ mod p2_dispatch {
 				"test_kv".into(),
 				"test_io".into(),
 				"test_none_value".into(),
+				"read_greeting".into(),
+				"read_config_version".into(),
+				"list_fs_root".into(),
 			]
 		}
 
@@ -238,6 +271,9 @@ mod p2_dispatch {
 				"test_kv" => super::__sr_p2_args_test_kv(),
 				"test_io" => super::__sr_p2_args_test_io(),
 				"test_none_value" => super::__sr_p2_args_test_none_value(),
+				"read_greeting" => super::__sr_p2_args_read_greeting(),
+				"read_config_version" => super::__sr_p2_args_read_config_version(),
+				"list_fs_root" => super::__sr_p2_args_list_fs_root(),
 				_ => Err(format!("Unknown function: {name}")),
 			}
 		}
@@ -254,6 +290,9 @@ mod p2_dispatch {
 				"test_kv" => super::__sr_p2_returns_test_kv(),
 				"test_io" => super::__sr_p2_returns_test_io(),
 				"test_none_value" => super::__sr_p2_returns_test_none_value(),
+				"read_greeting" => super::__sr_p2_returns_read_greeting(),
+				"read_config_version" => super::__sr_p2_returns_read_config_version(),
+				"list_fs_root" => super::__sr_p2_returns_list_fs_root(),
 				_ => Err(format!("Unknown function: {name}")),
 			}
 		}

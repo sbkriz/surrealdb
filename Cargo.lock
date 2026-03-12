@@ -1981,6 +1981,7 @@ name = "demo"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "surrealdb",
  "surrealdb-types",
  "surrealism",
@@ -7252,6 +7253,7 @@ dependencies = [
  "surrealdb-types",
  "surrealism-types",
  "tar",
+ "tempfile",
  "toml",
  "wasmtime",
  "wasmtime-wasi",

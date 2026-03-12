@@ -23,6 +23,16 @@ pub struct SurrealismConfig {
 	pub capabilities: SurrealismCapabilities,
 	#[serde(default)]
 	pub abi: AbiVersion,
+	#[serde(default)]
+	pub attach: SurrealismAttach,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct SurrealismAttach {
+	/// Path to a directory whose contents are bundled into the archive and
+	/// mounted as a read-only filesystem for the WASM module. Can be relative
+	/// (resolved against the project root at build time) or absolute.
+	pub fs: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
