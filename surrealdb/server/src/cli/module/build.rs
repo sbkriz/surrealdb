@@ -341,6 +341,10 @@ fn resolve_attach_fs(project_root: &Path, config: &SurrealismConfig) -> Result<O
 		return Ok(None);
 	};
 
+	if fs_value.is_empty() {
+		return Ok(None);
+	}
+
 	let fs_path = PathBuf::from(fs_value);
 	let resolved = if fs_path.is_absolute() {
 		fs_path

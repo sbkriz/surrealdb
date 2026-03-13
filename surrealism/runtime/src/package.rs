@@ -66,10 +66,10 @@ impl Default for UnpackOptions<'_> {
 fn create_temp_dir(opts: &UnpackOptions<'_>) -> SurrealismResult<TempDir> {
 	let mut builder = tempfile::Builder::new();
 	builder.prefix(opts.temp_prefix);
-	if let Some(base) = opts.temp_base {
-		if let Ok(dir) = builder.tempdir_in(base) {
-			return Ok(dir);
-		}
+	if let Some(base) = opts.temp_base
+		&& let Ok(dir) = builder.tempdir_in(base)
+	{
+		return Ok(dir);
 	}
 	builder.tempdir().prefix_err(|| {
 		"Failed to create temporary directory for module filesystem. \
@@ -108,13 +108,13 @@ impl SurrealismPackage {
 			let entry_path = entry.path().prefix_err(|| "Failed to get entry path")?;
 			let entry_str = entry_path.to_string_lossy().to_string();
 
-			if entry_str.ends_with("mod.wasm") {
+			if entry_str == "surrealism/mod.wasm" {
 				let mut buffer = Vec::new();
 				entry
 					.read_to_end(&mut buffer)
 					.prefix_err(|| "Failed to read WASM file from archive")?;
 				wasm = Some(buffer);
-			} else if entry_str.ends_with("surrealism.toml") {
+			} else if entry_str == "surrealism/surrealism.toml" {
 				let mut buffer = String::new();
 				entry
 					.read_to_string(&mut buffer)
@@ -127,23 +127,26 @@ impl SurrealismPackage {
 				if rel.is_empty() || rel.ends_with('/') {
 					continue;
 				}
-				let is_dir = entry
-					.header()
-					.entry_type()
-					.is_dir();
-				if is_dir {
+				if entry.header().entry_type().is_dir() {
 					continue;
 				}
 
-				let dir = match fs_dir {
-					Some(ref dir) => dir,
-					None => {
-						fs_dir = Some(create_temp_dir(opts)?);
-						fs_dir.as_ref().unwrap()
-					}
-				};
+				let rel_path = Path::new(rel);
+				if rel_path.components().any(|c| c == std::path::Component::ParentDir) {
+					return Err(SurrealismError::Other(anyhow::anyhow!(
+						"Path traversal detected in archive entry: {}",
+						entry_str
+					)));
+				}
 
-				let dest = dir.path().join(rel);
+				if fs_dir.is_none() {
+					fs_dir = Some(create_temp_dir(opts)?);
+				}
+				let dir = fs_dir.as_ref().ok_or_else(|| {
+					SurrealismError::Other(anyhow::anyhow!("module fs temp dir not initialized"))
+				})?;
+
+				let dest = dir.path().join(rel_path);
 				if let Some(parent) = dest.parent() {
 					fs::create_dir_all(parent)
 						.prefix_err(|| "Failed to create directory for fs entry")?;
