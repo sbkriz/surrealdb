@@ -3,6 +3,8 @@
 //! This is the single place that defines how embedded database errors are mapped to the
 //! public types-layer error used over RPC and in the SDK.
 
+use std::error::Error as StdError;
+
 use surrealdb_types::{
 	AlreadyExistsError, AuthError, ConfigurationError, ConnectionError, Error as TypesError,
 	NotAllowedError, NotFoundError, QueryError, SerializationError, ToSql, ValidationError,
@@ -21,7 +23,8 @@ use crate::kvs::Error as KvsError;
 pub fn into_types_error(error: Error) -> TypesError {
 	use Error::*;
 	let message = error.to_string();
-	match error {
+	let source = error.source().map(|s| TypesError::internal(s.to_string()));
+	let mapped = match error {
 		// Auth
 		ExpiredSession => TypesError::not_allowed(message, AuthError::SessionExpired),
 		ExpiredToken => TypesError::not_allowed(message, AuthError::TokenExpired),
@@ -323,5 +326,11 @@ pub fn into_types_error(error: Error) -> TypesError {
 		ApiError(error) => error.into_types_error(),
 
 		_ => TypesError::internal(message),
+	};
+
+	if let Some(cause) = source {
+		mapped.with_cause(cause)
+	} else {
+		mapped
 	}
 }

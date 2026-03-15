@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::fmt;
 use std::time::Duration;
 
@@ -272,6 +273,16 @@ impl Error {
 		}
 	}
 
+	/// Context for error chaining.
+	fn context(message: String) -> Self {
+		Self {
+			code: code::INTERNAL_ERROR,
+			message,
+			details: ErrorDetails::Context,
+			cause: None,
+		}
+	}
+
 	/// Build an error from a message and pre-parsed [`ErrorDetails`].
 	/// Uses [`default_code`] for the wire code. Intended for deserialization paths
 	/// that already have a typed `ErrorDetails` (e.g. via `ErrorDetails::from_value`).
@@ -329,6 +340,30 @@ impl Error {
 	pub fn with_cause(mut self, cause: Error) -> Self {
 		self.cause = Some(Box::new(cause));
 		self
+	}
+
+	/// Build an [`Error`] from an [`anyhow::Error`], preserving the complete source chain.
+	///
+	/// The outer error message is used as the top-level message and each source is attached as a
+	/// nested `cause`, making debugging easier for consumers that inspect chained errors.
+	#[doc(hidden)]
+	pub fn from_anyhow_with_chain(error: anyhow::Error) -> Self {
+		let chain: Vec<String> = error.chain().map(|e| e.to_string()).collect();
+		if chain.is_empty() {
+			return Self::internal("unknown error".to_string());
+		}
+
+		let mut built: Option<Error> = None;
+		for message in chain.into_iter().rev() {
+			let mut current = Self::internal(message);
+			if let Some(cause) = built {
+				current = current.with_cause(cause);
+			}
+			built = Some(current);
+		}
+
+		// Safe: we return early when `chain` is empty.
+		built.expect("non-empty anyhow error chain")
 	}
 
 	/// Returns the kind string for this error (e.g. "NotAllowed", "Internal").
@@ -394,6 +429,11 @@ impl Error {
 	/// Returns true if this is an internal error.
 	pub fn is_internal(&self) -> bool {
 		self.details.is_internal()
+	}
+
+	/// Returns true if this is a context error (used for error chaining).
+	pub fn is_context(&self) -> bool {
+		self.details.is_context()
 	}
 
 	/// Returns structured validation error details, if this is a validation error with specifics.
@@ -508,6 +548,8 @@ pub enum ErrorDetails {
 	/// Acts as a catch-all for unknown kinds during deserialization (forward compatibility).
 	#[surreal(other)]
 	Internal,
+	/// Context for error chaining.
+	Context,
 }
 
 impl ErrorDetails {
@@ -524,6 +566,7 @@ impl ErrorDetails {
 			Self::Connection(_) => "Connection",
 			Self::Thrown => "Thrown",
 			Self::Internal => "Internal",
+			Self::Context => "Context",
 		}
 	}
 
@@ -566,6 +609,10 @@ impl ErrorDetails {
 	/// Returns true if this is an internal error.
 	pub fn is_internal(&self) -> bool {
 		matches!(self, Self::Internal)
+	}
+	/// Returns true if this is a context error (used for error chaining).
+	pub fn is_context(&self) -> bool {
+		matches!(self, Self::Context)
 	}
 
 	/// Create an `ErrorDetails` from a kind string, with no inner details.
@@ -626,7 +673,7 @@ impl ErrorDetails {
 			Self::NotFound(d) => d.is_some(),
 			Self::AlreadyExists(d) => d.is_some(),
 			Self::Connection(d) => d.is_some(),
-			Self::Thrown | Self::Internal => false,
+			Self::Thrown | Self::Internal | Self::Context => false,
 		}
 	}
 }
@@ -902,6 +949,73 @@ impl fmt::Display for Error {
 impl std::error::Error for Error {
 	fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
 		self.cause.as_deref().map(|e| e as &(dyn std::error::Error + 'static))
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Error chaining trait
+// -----------------------------------------------------------------------------
+
+/// Extension trait for wrapping errors with context, producing a chained [`Error`].
+///
+/// # Examples
+///
+/// ```ignore
+/// use surrealdb_types::{Error, Chain};
+/// use std::io;
+///
+/// let result: io::Result<()> = Err(io::Error::new(io::ErrorKind::NotFound, "file missing"));
+/// let err = result.chain("Failed to load config").unwrap_err();
+/// assert!(err.is_internal());
+/// assert!(err.cause().is_some());
+/// ```
+pub trait Chain<T, E> {
+	/// Wrap the error with the given context message. The original error becomes the cause.
+	fn chain<C>(self, context: C) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static;
+
+	/// Wrap the error with lazily-evaluated context.
+	fn chain_with<C, F>(self, f: F) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static,
+		F: FnOnce() -> C;
+}
+
+impl<T, E> Chain<T, E> for Result<T, E>
+where
+	E: Into<Error>,
+{
+	fn chain<C>(self, context: C) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static,
+	{
+		self.map_err(|e| Error::context(context.to_string()).with_cause(e.into()))
+	}
+
+	fn chain_with<C, F>(self, f: F) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static,
+		F: FnOnce() -> C,
+	{
+		self.map_err(|e| Error::context(f().to_string()).with_cause(e.into()))
+	}
+}
+
+impl<T> Chain<T, Infallible> for Option<T> {
+	fn chain<C>(self, context: C) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static,
+	{
+		self.ok_or_else(|| Error::context(context.to_string()))
+	}
+
+	fn chain_with<C, F>(self, f: F) -> Result<T, Error>
+	where
+		C: fmt::Display + Send + Sync + 'static,
+		F: FnOnce() -> C,
+	{
+		self.ok_or_else(|| Error::context(f().to_string()))
 	}
 }
 
