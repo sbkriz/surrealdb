@@ -30,6 +30,17 @@ use crate::val::{CastError, CoerceError, Duration, RecordId, TableName, Value};
 mod to_types;
 pub(crate) use to_types::into_types_error;
 
+/// Convert an [`anyhow::Error`] into a structured [`surrealdb_types::Error`].
+///
+/// If the inner error is a core database error, it is downcast and converted using the full
+/// typed mapping. Otherwise the anyhow chain is preserved as an internal error chain.
+pub fn anyhow_to_types_error(error: anyhow::Error) -> surrealdb_types::Error {
+	match error.downcast::<Error>() {
+		Ok(e) => into_types_error(e),
+		Err(e) => surrealdb_types::Error::from_anyhow_with_chain(e),
+	}
+}
+
 /// An error originating from an embedded SurrealDB database.
 #[derive(Error, Debug)]
 #[allow(clippy::enum_variant_names)]
