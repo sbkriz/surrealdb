@@ -141,7 +141,7 @@ impl ApiError {
 			}
 			Self::MiddlewareFunctionNotFound {
 				..
-			} => TypesError::not_found(msg, None),
+			} => TypesError::configuration(msg, None),
 			Self::MiddlewareRequestParseFailure {
 				..
 			}
