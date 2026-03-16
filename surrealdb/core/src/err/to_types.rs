@@ -131,6 +131,10 @@ pub fn into_types_error(error: Error) -> TypesError {
 		QueryNotExecuted {
 			message,
 		} => TypesError::query(message, QueryError::NotExecuted),
+		AccessRecordSignupQueryFailed | AccessRecordSigninQueryFailed => {
+			TypesError::query(message, None)
+		}
+		AccessRecordNoSignup | AccessRecordNoSignin => TypesError::query(message, None),
 
 		// Serialization
 		Unencodable => TypesError::serialization(message, None),

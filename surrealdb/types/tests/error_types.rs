@@ -1984,3 +1984,25 @@ fn test_chain_trait_some_passthrough() {
 	let val = opt.chain("should not trigger").unwrap();
 	assert_eq!(val, 42);
 }
+
+#[test]
+fn test_error_query_none_round_trip() {
+	use surrealdb_types::SurrealValue;
+
+	let err = Error::query("The record access signup query failed".into(), None);
+	assert!(err.is_query(), "before round-trip: expected Query, got {}", err.kind_str());
+	let value = err.clone().into_value();
+	let parsed = Error::from_value(value).unwrap();
+	assert!(parsed.is_query(), "after round-trip: expected Query, got {}", parsed.kind_str());
+	assert_eq!(parsed.message(), "The record access signup query failed");
+
+	let encoded = surrealdb_types::encode(&err.into_value()).expect("encode should succeed");
+	let decoded: surrealdb_types::Value =
+		surrealdb_types::decode(&encoded).expect("decode should succeed");
+	let parsed = Error::from_value(decoded).unwrap();
+	assert!(
+		parsed.is_query(),
+		"after flatbuffers round-trip: expected Query, got {}",
+		parsed.kind_str()
+	);
+}

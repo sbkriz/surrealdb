@@ -1365,3 +1365,32 @@ impl serde::ser::Error for Error {
 		Self::Serialization(msg.to_string())
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_anyhow_to_types_error_signup_query_failed() {
+		let error = anyhow::Error::new(Error::AccessRecordSignupQueryFailed);
+		let types_error = anyhow_to_types_error(error);
+		assert!(
+			types_error.is_query(),
+			"expected Query error, got {} with message: {}",
+			types_error.kind_str(),
+			types_error.message()
+		);
+	}
+
+	#[test]
+	fn test_anyhow_to_types_error_signin_query_failed() {
+		let error = anyhow::Error::new(Error::AccessRecordSigninQueryFailed);
+		let types_error = anyhow_to_types_error(error);
+		assert!(
+			types_error.is_query(),
+			"expected Query error, got {} with message: {}",
+			types_error.kind_str(),
+			types_error.message()
+		);
+	}
+}
