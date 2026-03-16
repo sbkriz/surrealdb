@@ -9,15 +9,39 @@ use std::sync::LazyLock;
 use anyhow::{Result, anyhow};
 use opentelemetry::global;
 use opentelemetry_sdk::Resource;
+use surrealdb_core::CommunityComposer;
 use tracing::{Level, Subscriber};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
-use tracing_subscriber::EnvFilter;
 use tracing_subscriber::filter::{LevelFilter, ParseError};
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, Registry};
 
 use crate::cli::LogFormat;
 use crate::cli::validator::parser::tracing::CustomFilter;
 use crate::cnf::ENABLE_TOKIO_CONSOLE;
+
+/// Trait for configuring the tracing subscriber [`Registry`].
+///
+/// This allows an external composer to provide a custom [`Registry`] instance,
+/// enabling embedders to pre-configure the tracing registry with additional
+/// layers or subscribers before the telemetry stack is built.
+///
+/// The default implementation for [`CommunityComposer`] returns a plain
+/// [`tracing_subscriber::registry()`].
+pub trait RegistryConfig {
+	/// Create a new [`Registry`] to be used as the base for the telemetry subscriber stack.
+	fn new_registry(&mut self) -> Registry;
+}
+
+/// Default [`RegistryConfig`] implementation for the community edition.
+///
+/// Returns a standard [`tracing_subscriber::registry()`] with no additional
+/// pre-configured layers.
+impl RegistryConfig for CommunityComposer {
+	fn new_registry(&mut self) -> Registry {
+		tracing_subscriber::registry()
+	}
+}
 
 pub static OTEL_DEFAULT_RESOURCE: LazyLock<Resource> = LazyLock::new(|| {
 	// Build resource from environment variables and default attributes
@@ -74,10 +98,14 @@ impl Default for Builder {
 }
 
 impl Builder {
-	/// Install the tracing dispatcher globally
-	pub fn init(self) -> Result<Vec<WorkerGuard>> {
+	/// Install the tracing dispatcher globally.
+	///
+	/// Builds the full telemetry subscriber stack via [`Self::build`] and sets it
+	/// as the global default tracing subscriber. The `composer` is used to obtain
+	/// the base [`Registry`] through the [`RegistryConfig`] trait.
+	pub fn init<C: RegistryConfig>(self, composer: &mut C) -> Result<Vec<WorkerGuard>> {
 		// Setup logs, tracing, and metrics
-		let (registry, guards) = self.build()?;
+		let (registry, guards) = self.build(composer)?;
 		// Initialise the registry
 		registry.init();
 		// Everything ok
@@ -167,8 +195,15 @@ impl Builder {
 		self
 	}
 
-	/// Build a tracing dispatcher with the logs and tracer subscriber
-	pub fn build(&self) -> Result<(Box<dyn Subscriber + Send + Sync + 'static>, Vec<WorkerGuard>)> {
+	/// Build a tracing dispatcher with the logs and tracer subscriber.
+	///
+	/// Uses `composer` to obtain the base [`Registry`] via [`RegistryConfig::new_registry`],
+	/// then layers the configured stdio, file, socket, OpenTelemetry, and console
+	/// subscribers on top of it.
+	pub fn build<C: RegistryConfig>(
+		&self,
+		composer: &mut C,
+	) -> Result<(Box<dyn Subscriber + Send + Sync + 'static>, Vec<WorkerGuard>)> {
 		// Setup the metrics layer
 		if let Some(provider) = metrics::init()? {
 			global::set_meter_provider(provider);
@@ -186,7 +221,7 @@ impl Builder {
 		// Create the display destination layer
 		let stdio_layer = logs::output(self.filter.clone(), stdout, stderr, self.format)?;
 		// Setup a registry for composing layers
-		let registry = tracing_subscriber::registry();
+		let registry = composer.new_registry();
 		// Setup stdio destination layer
 		let registry = registry.with(stdio_layer);
 		// Setup guards

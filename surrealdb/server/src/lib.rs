@@ -29,7 +29,7 @@ pub mod ntw;
 /// Make `rpc` public so embedders can access RpcState and related router definitions
 /// when running SurrealDB as a library.
 pub mod rpc;
-mod telemetry;
+pub mod telemetry;
 
 use std::future::Future;
 use std::process::ExitCode;
@@ -48,6 +48,9 @@ pub use surrealdb as sdk;
 pub use surrealdb_core as core;
 use surrealdb_core::buc::BucketStoreProvider;
 use surrealdb_core::kvs::TransactionBuilderFactory;
+/// Re-export `RegistryConfig` so embedders can implement custom tracing registry setup.
+#[doc(inline)]
+pub use telemetry::RegistryConfig;
 
 // Re-export the core crate in the same path used across internal modules
 // so that `crate::core::...` keeps working when used as a library target.
@@ -64,7 +67,11 @@ use surrealdb_core::kvs::TransactionBuilderFactory;
 ///   - `TransactionBuilderFactory` (selects/validates the datastore backend)
 ///   - `RouterFactory` (constructs the HTTP router)
 ///   - `ConfigCheck` (validates configuration before initialization)
-pub fn init<C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider>(
+///   - `BucketStoreProvider` (provides bucket-based object storage)
+///   - `RegistryConfig` (configures the tracing subscriber registry)
+pub fn init<
+	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + RegistryConfig,
+>(
 	composer: C,
 ) -> ExitCode {
 	with_enough_stack(cli::init::<C>(composer))

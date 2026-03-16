@@ -101,6 +101,8 @@ pub mod channel {
 /// - `TransactionBuilderFactory` - Selects and validates the datastore backend
 /// - `RouterFactory` - Constructs the HTTP router with standard routes
 /// - `ConfigCheck` - Validates configuration before initialization
+/// - `BucketStoreProvider` - Provides bucket-based object storage
+/// - `RegistryConfig` - Configures the tracing subscriber registry (see `surreal::telemetry`)
 ///
 /// # Usage
 /// This is the default composer used by the `surreal` binary. Embedders can create

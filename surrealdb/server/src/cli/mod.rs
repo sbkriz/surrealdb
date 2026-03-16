@@ -53,6 +53,7 @@ use crate::cnf::DEBUG_BUILD_WARNING;
 use crate::cnf::{LOGO, PKG_VERSION};
 use crate::env::RELEASE;
 use crate::ntw::RouterFactory;
+use crate::telemetry::RegistryConfig;
 
 const INFO: &str = "
 To get started using SurrealDB, and for guides on connecting to and building applications
@@ -230,10 +231,13 @@ impl LogFileRotation {
 ///     storage backend)
 ///   - `RouterFactory` (constructs the HTTP router, allowing embedders to customize server routes)
 ///   - `ConfigCheck` (validates configuration before initialization)
+///   - `BucketStoreProvider` (provides bucket-based object storage)
+///   - `RegistryConfig` (configures the tracing subscriber registry, allowing embedders to supply a
+///     custom [`tracing_subscriber::Registry`])
 pub async fn init<
-	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider,
+	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + RegistryConfig,
 >(
-	composer: C,
+	mut composer: C,
 ) -> ExitCode {
 	// Enables ANSI code support on Windows
 	#[cfg(windows)]
@@ -285,7 +289,7 @@ pub async fn init<
 		.with_file_format(args.log_file_format)
 		.with_file_rotation(Some(args.log_file_rotation.as_str().to_string()));
 	// Extract the telemetry log guards
-	let guards = telemetry.init().expect("Unable to configure logs");
+	let guards = telemetry.init(&mut composer).expect("Unable to configure logs");
 	// After version warning we can run the respective command
 	let output = match args.command {
 		Commands::Start(args) => start::init::<C>(composer, args).await,
