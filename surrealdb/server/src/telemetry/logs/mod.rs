@@ -35,7 +35,7 @@ where
 			.with_span_events(FmtSpan::NONE)
 			.with_writer(writer)
 			.with_filter(filter.env())
-			.with_filter(filter.span_filter::<S>())
+			.with_filter(filter.span_filter())
 			.boxed()),
 		LogFormat::Text => Ok(layer
 			.compact()
@@ -48,7 +48,7 @@ where
 			.with_span_events(FmtSpan::NONE)
 			.with_writer(writer)
 			.with_filter(filter.env())
-			.with_filter(filter.span_filter::<S>())
+			.with_filter(filter.span_filter())
 			.boxed()),
 	}
 }
@@ -81,7 +81,7 @@ where
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
 				.with_filter(filter.env())
-				.with_filter(filter.span_filter::<S>())
+				.with_filter(filter.span_filter())
 				.boxed()),
 			LogFormat::Text => Ok(layer
 				.compact()
@@ -94,7 +94,7 @@ where
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
 				.with_filter(filter.env())
-				.with_filter(filter.span_filter::<S>())
+				.with_filter(filter.span_filter())
 				.boxed()),
 		}
 	}
@@ -115,7 +115,7 @@ where
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
 				.with_filter(filter.env())
-				.with_filter(filter.span_filter::<S>())
+				.with_filter(filter.span_filter())
 				.boxed()),
 			LogFormat::Text => Ok(layer
 				.compact()
@@ -128,7 +128,7 @@ where
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
 				.with_filter(filter.env())
-				.with_filter(filter.span_filter::<S>())
+				.with_filter(filter.span_filter())
 				.boxed()),
 		}
 	}

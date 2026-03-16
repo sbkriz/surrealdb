@@ -36,7 +36,7 @@ where
 				tracing_opentelemetry::layer()
 					.with_tracer(provider.tracer("surealdb"))
 					.with_filter(filter.env())
-					.with_filter(filter.span_filter::<S>())
+					.with_filter(filter.span_filter())
 					.boxed(),
 			))
 		}

@@ -3,16 +3,32 @@ use std::collections::HashMap;
 use clap::builder::{NonEmptyStringValueParser, PossibleValue, TypedValueParser};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::filter::{DynFilterFn, LevelFilter};
+use tracing_subscriber::filter::LevelFilter;
+use tracing_subscriber::layer::{Context, Filter};
+use tracing_subscriber::registry::LookupSpan;
 
 use crate::telemetry::{filter_from_value, span_filters_from_value};
 
+/// A parsed log filter configuration that combines two filtering mechanisms:
+///
+/// 1. An [`EnvFilter`] for module-level directive filtering (e.g. `surrealdb=debug`).
+/// 2. A span-level filter map that controls log levels for specific named spans and their
+///    descendants (e.g. `[my_span]=info`).
+///
+/// This type is produced by [`CustomFilterParser`] when parsing CLI `--log` values
+/// or the `RUST_LOG` environment variable.
 #[derive(Debug)]
 pub struct CustomFilter {
+	/// The module-level environment filter parsed from the input string.
 	pub(crate) env: EnvFilter,
+	/// A map of span names to their maximum allowed [`LevelFilter`]. Events that
+	/// occur inside a matching span (or any of its ancestor spans) are filtered
+	/// according to the associated level.
 	pub(crate) spans: HashMap<String, LevelFilter>,
 }
 
+// Manual `Clone` implementation because [`EnvFilter`] does not implement `Clone`.
+// We re-parse the filter from its string representation to create a copy.
 impl Clone for CustomFilter {
 	fn clone(&self) -> Self {
 		Self {
@@ -23,39 +39,78 @@ impl Clone for CustomFilter {
 }
 
 impl CustomFilter {
+	/// Returns a *new* [`EnvFilter`] cloned from this filter's string representation.
+	///
+	/// Because [`EnvFilter`] does not implement `Clone`, this re-parses the
+	/// directives from the filter's `Display` output.
 	pub fn env(&self) -> EnvFilter {
 		EnvFilter::builder().parse(self.env.to_string()).unwrap_or_default()
 	}
 
-	pub fn span_filter<S>(
-		self,
-	) -> DynFilterFn<
-		S,
-		impl Fn(&tracing::Metadata<'_>, &tracing_subscriber::layer::Context<'_, S>) -> bool + Clone,
-	>
-	where
-		S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
-	{
-		tracing_subscriber::filter::dynamic_filter_fn(move |meta, cx| {
-			if let Some(level) = self.spans.get(meta.name()) {
-				return *meta.level() <= *level;
-			}
-			let mut current = cx.lookup_current();
-			while let Some(span) = current {
-				if let Some(level) = self.spans.get(span.name()) {
-					return *meta.level() <= *level;
-				}
-				current = span.parent();
-			}
-			true
-		})
+	/// Returns a [`SpanFilter`] for span-level filtering.
+	///
+	/// The returned filter checks each event against the span-level rules.
+	/// If no span directives were configured, the filter will allow everything.
+	pub fn span_filter(&self) -> SpanFilter {
+		SpanFilter {
+			spans: self.spans.clone(),
+		}
 	}
 }
 
+/// A per-layer filter that controls log levels for specific named spans
+/// and their descendants.
+///
+/// An event is allowed if:
+/// - Its own span name matches an entry in the map and its level is at or below the configured
+///   threshold, **or**
+/// - An ancestor span's name matches (the first match wins), **or**
+/// - No span in the ancestry matches (the event is allowed by default).
+#[derive(Clone, Debug)]
+pub struct SpanFilter {
+	spans: HashMap<String, LevelFilter>,
+}
+
+impl<S> Filter<S> for SpanFilter
+where
+	S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+{
+	fn enabled(&self, meta: &tracing::Metadata<'_>, cx: &Context<'_, S>) -> bool {
+		if let Some(level) = self.spans.get(meta.name()) {
+			return *meta.level() <= *level;
+		}
+		let mut current = cx.lookup_current();
+		while let Some(span) = current {
+			if let Some(level) = self.spans.get(span.name()) {
+				return *meta.level() <= *level;
+			}
+			current = span.parent();
+		}
+		true
+	}
+}
+
+/// A [`TypedValueParser`] for `clap` that parses a log filter string into a
+/// [`CustomFilter`].
+///
+/// The parser accepts either:
+/// - The `RUST_LOG` environment variable (takes priority when set), or
+/// - A CLI argument value.
+///
+/// The input string is split into two parts:
+/// 1. **Module-level directives** — standard `tracing` / `EnvFilter` syntax (e.g. `info`,
+///    `surrealdb=debug,warn`) parsed via
+///    [`filter_from_value`](crate::telemetry::filter_from_value).
+/// 2. **Span-level directives** — comma-separated entries of the form `[span_name]=level` parsed
+///    via [`span_filters_from_value`](crate::telemetry::span_filters_from_value).
+///
+/// Recognised shorthand values: `none`, `full`, `error`, `warn`, `info`,
+/// `debug`, `trace`.
 #[derive(Clone)]
 pub struct CustomFilterParser;
 
 impl CustomFilterParser {
+	/// Creates a new [`CustomFilterParser`].
 	pub fn new() -> CustomFilterParser {
 		Self
 	}
