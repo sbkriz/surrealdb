@@ -3,8 +3,9 @@ mod logs;
 pub mod metrics;
 pub mod traces;
 
+use std::collections::HashMap;
 use std::net::ToSocketAddrs;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 
 use anyhow::{Result, anyhow};
 use opentelemetry::global;
@@ -13,8 +14,9 @@ use surrealdb_core::CommunityComposer;
 use tracing::{Level, Subscriber};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_subscriber::filter::{LevelFilter, ParseError};
+use tracing_subscriber::layer::Layered;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Layer, Registry};
 
 use crate::cli::LogFormat;
 use crate::cli::validator::parser::tracing::CustomFilter;
@@ -28,20 +30,39 @@ use crate::cnf::ENABLE_TOKIO_CONSOLE;
 ///
 /// The default implementation for [`CommunityComposer`] returns a plain
 /// [`tracing_subscriber::registry()`].
-pub trait RegistryConfig {
+pub trait LoggingComposer {
 	/// Create a new [`Registry`] to be used as the base for the telemetry subscriber stack.
-	fn new_registry(&mut self) -> Registry;
-}
+	fn register(
+		&mut self,
+		registry: Registry,
+		layer: impl Layer<Registry> + Send + Sync,
+	) -> Layered<impl Layer<Registry> + Send + Sync, Registry> {
+		registry.with(layer)
+	}
 
-/// Default [`RegistryConfig`] implementation for the community edition.
-///
-/// Returns a standard [`tracing_subscriber::registry()`] with no additional
-/// pre-configured layers.
-impl RegistryConfig for CommunityComposer {
-	fn new_registry(&mut self) -> Registry {
-		tracing_subscriber::registry()
+	/// Optionally transform the [`CustomFilter`] used for the stdio (stdout/stderr) log layer.
+	///
+	/// The default implementation returns the filter unchanged.
+	fn with_stdio_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
+		custom_filter
+	}
+
+	/// Optionally transform the [`CustomFilter`] used for the file and socket log layers.
+	///
+	/// The default implementation returns the filter unchanged.
+	fn with_file_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
+		custom_filter
+	}
+
+	/// Optionally transform the [`CustomFilter`] used for the OpenTelemetry log layer.
+	///
+	/// The default implementation returns the filter unchanged.
+	fn with_otel_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
+		custom_filter
 	}
 }
+
+impl LoggingComposer for CommunityComposer {}
 
 pub static OTEL_DEFAULT_RESOURCE: LazyLock<Resource> = LazyLock::new(|| {
 	// Build resource from environment variables and default attributes
@@ -75,10 +96,7 @@ pub fn builder() -> Builder {
 impl Default for Builder {
 	fn default() -> Self {
 		Self {
-			filter: CustomFilter {
-				env: EnvFilter::default(),
-				spans: std::collections::HashMap::new(),
-			},
+			filter: CustomFilter::default(),
 			format: LogFormat::Text,
 			socket: None,
 			// Filter options
@@ -102,8 +120,8 @@ impl Builder {
 	///
 	/// Builds the full telemetry subscriber stack via [`Self::build`] and sets it
 	/// as the global default tracing subscriber. The `composer` is used to obtain
-	/// the base [`Registry`] through the [`RegistryConfig`] trait.
-	pub fn init<C: RegistryConfig>(self, composer: &mut C) -> Result<Vec<WorkerGuard>> {
+	/// the base [`Registry`] through the [`LoggingComposer`] trait.
+	pub fn init<C: LoggingComposer>(self, composer: &mut C) -> Result<Vec<WorkerGuard>> {
 		// Setup logs, tracing, and metrics
 		let (registry, guards) = self.build(composer)?;
 		// Initialise the registry
@@ -120,11 +138,8 @@ impl Builder {
 
 	/// Set the log level on the builder
 	pub fn with_log_level(mut self, log_level: &str) -> Self {
-		if let Ok(filter) = filter_from_value(log_level) {
-			self.filter = CustomFilter {
-				env: filter,
-				spans: std::collections::HashMap::new(),
-			};
+		if let Ok(env_filter) = env_filter_from_value(log_level) {
+			self.filter = CustomFilter::new(env_filter, Arc::new(HashMap::new()));
 		}
 		self
 	}
@@ -197,10 +212,10 @@ impl Builder {
 
 	/// Build a tracing dispatcher with the logs and tracer subscriber.
 	///
-	/// Uses `composer` to obtain the base [`Registry`] via [`RegistryConfig::new_registry`],
+	/// Uses `composer` to obtain the base [`Registry`] via [`LoggingComposer::register`],
 	/// then layers the configured stdio, file, socket, OpenTelemetry, and console
 	/// subscribers on top of it.
-	pub fn build<C: RegistryConfig>(
+	pub fn build<C: LoggingComposer>(
 		&self,
 		composer: &mut C,
 	) -> Result<(Box<dyn Subscriber + Send + Sync + 'static>, Vec<WorkerGuard>)> {
@@ -219,11 +234,16 @@ impl Builder {
 			.thread_name("surrealdb-logger-stderr")
 			.finish(std::io::stderr());
 		// Create the display destination layer
-		let stdio_layer = logs::output(self.filter.clone(), stdout, stderr, self.format)?;
+		let stdio_layer = logs::output(
+			composer.with_stdio_filter(self.filter.clone()),
+			stdout,
+			stderr,
+			self.format,
+		)?;
 		// Setup a registry for composing layers
-		let registry = composer.new_registry();
+		let registry = tracing_subscriber::registry();
 		// Setup stdio destination layer
-		let registry = registry.with(stdio_layer);
+		let registry = composer.register(registry, stdio_layer);
 		// Setup guards
 		let mut guards = vec![stdout_guard, stderr_guard];
 		// Setup layers
@@ -232,7 +252,8 @@ impl Builder {
 		// Setup logging to opentelemetry
 		{
 			// Get the otel filter or global filter
-			let filter = self.otel_filter.clone().unwrap_or_else(|| self.filter.clone());
+			let filter = composer
+				.with_otel_filter(self.otel_filter.clone().unwrap_or_else(|| self.filter.clone()));
 			// Create the otel destination layer
 			if let Some(layer) = traces::new(filter)? {
 				// Add the layer to the registry
@@ -253,7 +274,9 @@ impl Builder {
 				.thread_name("surrealdb-logger-socket")
 				.finish(socket);
 			// Get the file filter or global filter
-			let filter = self.socket_filter.clone().unwrap_or_else(|| self.filter.clone());
+			let filter = composer.with_file_filter(
+				self.socket_filter.clone().unwrap_or_else(|| self.filter.clone()),
+			);
 			// Create the socket destination layer
 			let layer = logs::file(filter, writer, self.socket_format)?;
 			// Add the layer to the registry
@@ -300,17 +323,14 @@ impl Builder {
 			layers.push(layer);
 		}
 
-		match layers.len() {
-			0 => {
-				// Return the registry and guards
-				Ok((Box::new(registry), guards))
-			}
-			_ => {
-				// Setup the registry layers
-				let registry = registry.with(layers);
-				// Return the registry and guards
-				Ok((Box::new(registry), guards))
-			}
+		if layers.is_empty() {
+			// Return the registry and guards
+			Ok((Box::new(registry), guards))
+		} else {
+			// Setup the registry layers
+			let registry = registry.with(layers);
+			// Return the registry and guards
+			Ok((Box::new(registry), guards))
 		}
 	}
 }
@@ -323,7 +343,7 @@ pub fn shutdown() {
 
 /// Create an EnvFilter from the given value. If the value is not a valid log
 /// level, it will be treated as EnvFilter directives.
-pub fn filter_from_value(v: &str) -> std::result::Result<EnvFilter, ParseError> {
+pub fn env_filter_from_value(v: &str) -> std::result::Result<EnvFilter, ParseError> {
 	match v {
 		// Don't show any logs at all
 		"none" => Ok(EnvFilter::default()),
@@ -361,7 +381,11 @@ pub fn filter_from_value(v: &str) -> std::result::Result<EnvFilter, ParseError> 
 	}
 }
 
-/// Parse span level directives from the given value.
+/// Parse span-level directives from the given value.
+///
+/// Extracts entries of the form `[span_name]=level` from a comma-separated
+/// filter string. Entries that do not start with `[` are silently ignored.
+/// If no `=level` suffix is provided, [`LevelFilter::TRACE`] is assumed.
 pub fn span_filters_from_value(v: &str) -> Vec<(String, LevelFilter)> {
 	v.split(',')
 		.filter_map(|d| {

@@ -48,9 +48,9 @@ pub use surrealdb as sdk;
 pub use surrealdb_core as core;
 use surrealdb_core::buc::BucketStoreProvider;
 use surrealdb_core::kvs::TransactionBuilderFactory;
-/// Re-export `RegistryConfig` so embedders can implement custom tracing registry setup.
+/// Re-export `LoggingComposer` so embedders can implement custom tracing registry setup.
 #[doc(inline)]
-pub use telemetry::RegistryConfig;
+pub use telemetry::LoggingComposer;
 
 // Re-export the core crate in the same path used across internal modules
 // so that `crate::core::...` keeps working when used as a library target.
@@ -68,9 +68,9 @@ pub use telemetry::RegistryConfig;
 ///   - `RouterFactory` (constructs the HTTP router)
 ///   - `ConfigCheck` (validates configuration before initialization)
 ///   - `BucketStoreProvider` (provides bucket-based object storage)
-///   - `RegistryConfig` (configures the tracing subscriber registry)
+///   - `LoggingComposer` (configures the tracing subscriber registry)
 pub fn init<
-	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + RegistryConfig,
+	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + LoggingComposer,
 >(
 	composer: C,
 ) -> ExitCode {

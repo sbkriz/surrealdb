@@ -53,7 +53,7 @@ use crate::cnf::DEBUG_BUILD_WARNING;
 use crate::cnf::{LOGO, PKG_VERSION};
 use crate::env::RELEASE;
 use crate::ntw::RouterFactory;
-use crate::telemetry::RegistryConfig;
+use crate::telemetry::LoggingComposer;
 
 const INFO: &str = "
 To get started using SurrealDB, and for guides on connecting to and building applications
@@ -232,10 +232,10 @@ impl LogFileRotation {
 ///   - `RouterFactory` (constructs the HTTP router, allowing embedders to customize server routes)
 ///   - `ConfigCheck` (validates configuration before initialization)
 ///   - `BucketStoreProvider` (provides bucket-based object storage)
-///   - `RegistryConfig` (configures the tracing subscriber registry, allowing embedders to supply a
-///     custom [`tracing_subscriber::Registry`])
+///   - `LoggingComposer` (configures the tracing subscriber registry, allowing embedders to supply
+///     a custom [`tracing_subscriber::Registry`])
 pub async fn init<
-	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + RegistryConfig,
+	C: TransactionBuilderFactory + RouterFactory + ConfigCheck + BucketStoreProvider + LoggingComposer,
 >(
 	mut composer: C,
 ) -> ExitCode {
