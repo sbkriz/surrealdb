@@ -86,6 +86,12 @@ impl CustomFilter {
 #[derive(Clone, Debug)]
 pub struct SpanFilter(Arc<HashMap<String, LevelFilter>>);
 
+impl SpanFilter {
+	pub fn new(spans: Arc<HashMap<String, LevelFilter>>) -> Self {
+		Self(spans)
+	}
+}
+
 impl<S> Filter<S> for SpanFilter
 where
 	S: Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
