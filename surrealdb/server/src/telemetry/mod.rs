@@ -20,7 +20,7 @@ use tracing_subscriber::prelude::*;
 use tracing_subscriber::registry::LookupSpan;
 
 use crate::cli::LogFormat;
-use crate::cli::validator::parser::tracing::CustomFilter;
+pub use crate::cli::validator::parser::tracing::CustomFilter;
 use crate::cnf::ENABLE_TOKIO_CONSOLE;
 
 /// Identifies the logging destination that a filter is being configured for.

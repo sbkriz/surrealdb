@@ -48,9 +48,17 @@ pub use surrealdb as sdk;
 pub use surrealdb_core as core;
 use surrealdb_core::buc::BucketStoreProvider;
 use surrealdb_core::kvs::TransactionBuilderFactory;
+/// Re-export `CustomFilter` so embedders can construct and manipulate log filters
+/// when implementing [`LoggingComposer`].
+#[doc(inline)]
+pub use telemetry::CustomFilter;
 /// Re-export `LoggingComposer` so embedders can implement custom tracing registry setup.
 #[doc(inline)]
 pub use telemetry::LoggingComposer;
+/// Re-export `LoggingType` so embedders can match on logging destinations
+/// in their [`LoggingComposer::with_filter`] implementations.
+#[doc(inline)]
+pub use telemetry::LoggingType;
 
 // Re-export the core crate in the same path used across internal modules
 // so that `crate::core::...` keeps working when used as a library target.
