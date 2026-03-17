@@ -10,8 +10,15 @@ use tracing_subscriber::{EnvFilter, Layer};
 use crate::cnf::{TELEMETRY_DISABLE_TRACING, TELEMETRY_PROVIDER};
 use crate::telemetry::OTEL_DEFAULT_RESOURCE;
 
-// Returns a tracer provider based on the SURREAL_TELEMETRY_PROVIDER environment
-// variable
+/// Create an OpenTelemetry tracing layer if the `SURREAL_TELEMETRY_PROVIDER`
+/// environment variable is set to `"otlp"` and tracing is not disabled.
+///
+/// The returned layer exports spans via the OTLP/gRPC protocol. Both the
+/// `env_filter` (module-level directives) and `span_filter` (span-level rules)
+/// are applied as per-layer filters so they do not affect other layers in the
+/// subscriber stack.
+///
+/// Returns `Ok(None)` when telemetry tracing is not configured.
 pub fn new<F, S>(
 	env_filter: EnvFilter,
 	span_filter: F,

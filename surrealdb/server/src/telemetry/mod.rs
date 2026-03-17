@@ -23,25 +23,43 @@ use crate::cli::LogFormat;
 use crate::cli::validator::parser::tracing::CustomFilter;
 use crate::cnf::ENABLE_TOKIO_CONSOLE;
 
+/// Identifies the logging destination that a filter is being configured for.
+///
+/// This is passed to [`LoggingComposer::with_filter`] so that the composer can
+/// apply destination-specific filter customisations.
 pub enum LoggingType {
+	/// Standard I/O output (stdout for normal messages, stderr for warnings/errors).
 	Stdio,
+	/// Rotating log-file output.
 	File,
+	/// Remote socket (TCP) output.
 	Socket,
+	/// OpenTelemetry tracing exporter.
 	Otel,
 }
 
-/// Trait for configuring the tracing subscriber [`Registry`].
+/// Trait that allows an external composer to customise the logging filters
+/// applied to each telemetry destination.
 ///
-/// This allows an external composer to provide a custom [`Registry`] instance,
-/// enabling embedders to pre-configure the tracing registry with additional
-/// layers or subscribers before the telemetry stack is built.
+/// Every logging destination (stdio, file, socket, OpenTelemetry) calls
+/// [`with_filter`](Self::with_filter) before building its layer, giving the
+/// implementor a chance to replace or transform both the [`EnvFilter`] and the
+/// span-level [`Filter`].
 ///
-/// The default implementation for [`CommunityComposer`] returns a plain
-/// [`tracing_subscriber::registry()`].
+/// The default implementation — provided for [`CommunityComposer`] — returns
+/// the filters unchanged.
 pub trait LoggingComposer {
-	/// Optionally transform the [`CustomFilter`] used for the stdio (stdout/stderr) log layer.
+	/// Optionally transform the [`CustomFilter`] for the given logging destination.
 	///
-	/// The default implementation returns the filter unchanged.
+	/// The caller supplies a [`LoggingType`] that identifies which destination
+	/// the filter will be applied to, together with the [`CustomFilter`] parsed
+	/// from the CLI / environment. The implementor returns:
+	///
+	/// * An [`EnvFilter`] — module-level directive filter.
+	/// * A [`Filter<S>`] — span-level filter.
+	///
+	/// The default implementation returns the filters from `custom_filter`
+	/// unchanged.
 	fn with_filter<S>(
 		&mut self,
 		_logging_type: LoggingType,
@@ -62,25 +80,44 @@ pub static OTEL_DEFAULT_RESOURCE: LazyLock<Resource> = LazyLock::new(|| {
 	Resource::builder().with_service_name("surrealdb").build()
 });
 
+/// Builder for constructing the telemetry subscriber stack.
+///
+/// Collects configuration for every logging destination (stdio, file, socket,
+/// OpenTelemetry) and assembles them into a layered [`tracing::Subscriber`]
+/// via [`build`](Self::build) or [`init`](Self::init).
 #[derive(Debug, Clone)]
 pub struct Builder {
+	/// Output format for the stdio (terminal) layer.
 	format: LogFormat,
+	/// Global / default log filter applied when no destination-specific filter
+	/// is set.
 	filter: CustomFilter,
+	/// Optional remote socket address for TCP log streaming.
 	socket: Option<String>,
-	// Filter options
+	// — Destination-specific filter overrides ————————————————
+	/// Optional filter override for the file destination.
 	file_filter: Option<CustomFilter>,
+	/// Optional filter override for the OpenTelemetry destination.
 	otel_filter: Option<CustomFilter>,
+	/// Optional filter override for the socket destination.
 	socket_filter: Option<CustomFilter>,
-	// Socket options
+	// — Socket options ————————————————————————————————————————
+	/// Output format for the socket layer.
 	socket_format: LogFormat,
-	// File options
+	// — File options ——————————————————————————————————————————
+	/// Whether file logging is enabled.
 	file_enabled: bool,
+	/// Output format for the file layer.
 	file_format: LogFormat,
+	/// Directory path for log files.
 	file_path: Option<String>,
+	/// File name for the log file.
 	file_name: Option<String>,
+	/// Rotation interval (`"daily"`, `"hourly"`, or `"never"`).
 	file_rotation: Option<String>,
 }
 
+/// Create a new [`Builder`] with default settings.
 pub fn builder() -> Builder {
 	Builder::default()
 }
@@ -202,11 +239,13 @@ impl Builder {
 		self
 	}
 
-	/// Build a tracing dispatcher with the logs and tracer subscriber.
+	/// Build a tracing dispatcher with the configured logging layers.
 	///
-	/// Uses `composer` to obtain the base [`Registry`] via [`LoggingComposer::register`],
-	/// then layers the configured stdio, file, socket, OpenTelemetry, and console
-	/// subscribers on top of it.
+	/// Constructs a [`tracing_subscriber::Registry`] and layers the configured
+	/// stdio, file, socket, OpenTelemetry, and Tokio-console subscribers on top
+	/// of it. Each layer's filter is passed through
+	/// [`LoggingComposer::with_filter`] so that the `composer` can customise
+	/// filtering per destination.
 	pub fn build<C: LoggingComposer>(
 		&self,
 		composer: &mut C,

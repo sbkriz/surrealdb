@@ -10,6 +10,11 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::cli::LogFormat;
 
+/// Build a file / socket logging layer.
+///
+/// Writes all events (up to `TRACE`) into the given [`NonBlocking`] writer
+/// using the specified [`LogFormat`]. Events are filtered by the provided
+/// `env_filter` (module-level directives) and `span_filter` (span-level rules).
 pub fn file<F, S>(
 	env_filter: EnvFilter,
 	span_filter: F,
@@ -55,6 +60,15 @@ where
 	}
 }
 
+/// Build the standard I/O logging layer (stdout + stderr).
+///
+/// `INFO` / `DEBUG` / `TRACE` events are written to `stdout`; `WARN` and
+/// `ERROR` events are written to `stderr`. In debug builds the layer
+/// additionally includes file names and line numbers for easier development
+/// debugging.
+///
+/// Events are filtered by the provided `env_filter` (module-level directives)
+/// and `span_filter` (span-level rules).
 pub fn output<F, S>(
 	env_filter: EnvFilter,
 	span_filter: F,
