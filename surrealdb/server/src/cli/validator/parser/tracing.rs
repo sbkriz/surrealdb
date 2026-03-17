@@ -67,7 +67,7 @@ impl CustomFilter {
 	///
 	/// The returned filter checks each event against the span-level rules.
 	/// If no span directives were configured, the filter will allow everything.
-	pub(crate) fn span_filter<S>(&self) -> impl Filter<S> + Send + Sync + 'static + use<S>
+	pub fn span_filter<S>(&self) -> impl Filter<S> + Send + Sync + 'static + use<S>
 	where
 		S: Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
 	{
@@ -84,7 +84,7 @@ impl CustomFilter {
 /// - An ancestor span's name matches (the first match wins), **or**
 /// - No span in the ancestry matches (the event is allowed by default).
 #[derive(Clone, Debug)]
-pub(crate) struct SpanFilter(Arc<HashMap<String, LevelFilter>>);
+pub struct SpanFilter(Arc<HashMap<String, LevelFilter>>);
 
 impl<S> Filter<S> for SpanFilter
 where
