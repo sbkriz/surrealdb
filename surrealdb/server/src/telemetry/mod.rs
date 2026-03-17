@@ -13,14 +13,22 @@ use opentelemetry_sdk::Resource;
 use surrealdb_core::CommunityComposer;
 use tracing::{Level, Subscriber};
 use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
+use tracing_subscriber::EnvFilter;
 use tracing_subscriber::filter::{LevelFilter, ParseError};
-use tracing_subscriber::layer::Layered;
+use tracing_subscriber::layer::Filter;
 use tracing_subscriber::prelude::*;
-use tracing_subscriber::{EnvFilter, Layer, Registry};
+use tracing_subscriber::registry::LookupSpan;
 
 use crate::cli::LogFormat;
 use crate::cli::validator::parser::tracing::CustomFilter;
 use crate::cnf::ENABLE_TOKIO_CONSOLE;
+
+pub enum LoggingType {
+	Stdio,
+	File,
+	Socket,
+	Otel,
+}
 
 /// Trait for configuring the tracing subscriber [`Registry`].
 ///
@@ -31,34 +39,18 @@ use crate::cnf::ENABLE_TOKIO_CONSOLE;
 /// The default implementation for [`CommunityComposer`] returns a plain
 /// [`tracing_subscriber::registry()`].
 pub trait LoggingComposer {
-	/// Create a new [`Registry`] to be used as the base for the telemetry subscriber stack.
-	fn register(
-		&mut self,
-		registry: Registry,
-		layer: impl Layer<Registry> + Send + Sync,
-	) -> Layered<impl Layer<Registry> + Send + Sync, Registry> {
-		registry.with(layer)
-	}
-
 	/// Optionally transform the [`CustomFilter`] used for the stdio (stdout/stderr) log layer.
 	///
 	/// The default implementation returns the filter unchanged.
-	fn with_stdio_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
-		custom_filter
-	}
-
-	/// Optionally transform the [`CustomFilter`] used for the file and socket log layers.
-	///
-	/// The default implementation returns the filter unchanged.
-	fn with_file_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
-		custom_filter
-	}
-
-	/// Optionally transform the [`CustomFilter`] used for the OpenTelemetry log layer.
-	///
-	/// The default implementation returns the filter unchanged.
-	fn with_otel_filter(&mut self, custom_filter: CustomFilter) -> CustomFilter {
-		custom_filter
+	fn with_filter<S>(
+		&mut self,
+		_logging_type: LoggingType,
+		custom_filter: CustomFilter,
+	) -> (EnvFilter, impl Filter<S> + Send + Sync + 'static)
+	where
+		S: Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
+	{
+		(custom_filter.env(), custom_filter.span_filter())
 	}
 }
 
@@ -234,16 +226,13 @@ impl Builder {
 			.thread_name("surrealdb-logger-stderr")
 			.finish(std::io::stderr());
 		// Create the display destination layer
-		let stdio_layer = logs::output(
-			composer.with_stdio_filter(self.filter.clone()),
-			stdout,
-			stderr,
-			self.format,
-		)?;
+		let (env_filter, span_filter) =
+			composer.with_filter(LoggingType::Stdio, self.filter.clone());
+		let stdio_layer = logs::output(env_filter, span_filter, stdout, stderr, self.format)?;
 		// Setup a registry for composing layers
 		let registry = tracing_subscriber::registry();
 		// Setup stdio destination layer
-		let registry = composer.register(registry, stdio_layer);
+		let registry = registry.with(stdio_layer);
 		// Setup guards
 		let mut guards = vec![stdout_guard, stderr_guard];
 		// Setup layers
@@ -252,10 +241,12 @@ impl Builder {
 		// Setup logging to opentelemetry
 		{
 			// Get the otel filter or global filter
-			let filter = composer
-				.with_otel_filter(self.otel_filter.clone().unwrap_or_else(|| self.filter.clone()));
+			let (env_filter, span_filter) = composer.with_filter(
+				LoggingType::Otel,
+				self.otel_filter.clone().unwrap_or_else(|| self.filter.clone()),
+			);
 			// Create the otel destination layer
-			if let Some(layer) = traces::new(filter)? {
+			if let Some(layer) = traces::new(env_filter, span_filter)? {
 				// Add the layer to the registry
 				layers.push(layer);
 			}
@@ -273,12 +264,13 @@ impl Builder {
 				.lossy(false)
 				.thread_name("surrealdb-logger-socket")
 				.finish(socket);
-			// Get the file filter or global filter
-			let filter = composer.with_file_filter(
+			// Get the socket filter or global filter
+			let (env_filter, span_filter) = composer.with_filter(
+				LoggingType::Socket,
 				self.socket_filter.clone().unwrap_or_else(|| self.filter.clone()),
 			);
 			// Create the socket destination layer
-			let layer = logs::file(filter, writer, self.socket_format)?;
+			let layer = logs::file(env_filter, span_filter, writer, self.socket_format)?;
 			// Add the layer to the registry
 			layers.push(layer);
 			// Add the guard to the guards
@@ -306,9 +298,12 @@ impl Builder {
 				.thread_name("surrealdb-logger-file")
 				.finish(file_appender);
 			// Get the file filter or global filter
-			let filter = self.file_filter.clone().unwrap_or_else(|| self.filter.clone());
+			let (env_filter, spans_filter) = composer.with_filter(
+				LoggingType::File,
+				self.file_filter.clone().unwrap_or_else(|| self.filter.clone()),
+			);
 			// Create the file destination layer
-			let layer = logs::file(filter, writer, self.file_format)?;
+			let layer = logs::file(env_filter, spans_filter, writer, self.file_format)?;
 			// Add the layer to the registry
 			layers.push(layer);
 			// Add the guard to the guards

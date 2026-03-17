@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use clap::builder::{NonEmptyStringValueParser, PossibleValue, TypedValueParser};
 use clap::error::{ContextKind, ContextValue, ErrorKind};
+use tracing::Subscriber;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::{Context, Filter};
@@ -66,7 +67,10 @@ impl CustomFilter {
 	///
 	/// The returned filter checks each event against the span-level rules.
 	/// If no span directives were configured, the filter will allow everything.
-	pub(crate) fn span_filter(&self) -> SpanFilter {
+	pub(crate) fn span_filter<S>(&self) -> impl Filter<S> + Send + Sync + 'static + use<S>
+	where
+		S: Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
+	{
 		SpanFilter(self.spans())
 	}
 }
@@ -84,7 +88,7 @@ pub(crate) struct SpanFilter(Arc<HashMap<String, LevelFilter>>);
 
 impl<S> Filter<S> for SpanFilter
 where
-	S: tracing::Subscriber + for<'a> LookupSpan<'a>,
+	S: Subscriber + for<'a> LookupSpan<'a> + Send + Sync,
 {
 	fn enabled(&self, meta: &tracing::Metadata<'_>, cx: &Context<'_, S>) -> bool {
 		if let Some(level) = self.0.get(meta.name()) {

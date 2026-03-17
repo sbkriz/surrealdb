@@ -3,19 +3,21 @@ pub mod socket;
 use anyhow::Result;
 use tracing::{Level, Subscriber};
 use tracing_appender::non_blocking::NonBlocking;
-use tracing_subscriber::Layer;
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::fmt::writer::MakeWriterExt;
+use tracing_subscriber::layer::Filter;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use crate::cli::LogFormat;
-use crate::cli::validator::parser::tracing::CustomFilter;
 
-pub fn file<S>(
-	filter: CustomFilter,
+pub fn file<F, S>(
+	env_filter: EnvFilter,
+	span_filter: F,
 	file: NonBlocking,
 	format: LogFormat,
 ) -> Result<Box<dyn Layer<S> + Send + Sync>>
 where
+	F: Filter<S> + Send + Sync + 'static,
 	S: Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
 {
 	// Log ERROR, WARN, INFO, DEBUG, TRACE to rotating file
@@ -34,8 +36,8 @@ where
 			.with_thread_names(false)
 			.with_span_events(FmtSpan::NONE)
 			.with_writer(writer)
-			.with_filter(filter.env())
-			.with_filter(filter.span_filter())
+			.with_filter(env_filter)
+			.with_filter(span_filter)
 			.boxed()),
 		LogFormat::Text => Ok(layer
 			.compact()
@@ -47,19 +49,21 @@ where
 			.with_thread_names(false)
 			.with_span_events(FmtSpan::NONE)
 			.with_writer(writer)
-			.with_filter(filter.env())
-			.with_filter(filter.span_filter())
+			.with_filter(env_filter)
+			.with_filter(span_filter)
 			.boxed()),
 	}
 }
 
-pub fn output<S>(
-	filter: CustomFilter,
+pub fn output<F, S>(
+	env_filter: EnvFilter,
+	span_filter: F,
 	stdout: NonBlocking,
 	stderr: NonBlocking,
 	format: LogFormat,
 ) -> Result<Box<dyn Layer<S> + Send + Sync>>
 where
+	F: Filter<S> + Send + Sync + 'static,
 	S: Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a> + Send + Sync,
 {
 	// Log INFO, DEBUG, TRACE to stdout, WARN, ERROR to stderr
@@ -80,8 +84,8 @@ where
 				.with_thread_names(false)
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
-				.with_filter(filter.env())
-				.with_filter(filter.span_filter())
+				.with_filter(env_filter)
+				.with_filter(span_filter)
 				.boxed()),
 			LogFormat::Text => Ok(layer
 				.compact()
@@ -93,8 +97,8 @@ where
 				.with_thread_names(false)
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
-				.with_filter(filter.env())
-				.with_filter(filter.span_filter())
+				.with_filter(env_filter)
+				.with_filter(span_filter)
 				.boxed()),
 		}
 	}
@@ -114,8 +118,8 @@ where
 				.with_thread_names(false)
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
-				.with_filter(filter.env())
-				.with_filter(filter.span_filter())
+				.with_filter(env_filter)
+				.with_filter(span_filter)
 				.boxed()),
 			LogFormat::Text => Ok(layer
 				.compact()
@@ -127,8 +131,8 @@ where
 				.with_thread_names(false)
 				.with_span_events(FmtSpan::NONE)
 				.with_writer(writer)
-				.with_filter(filter.env())
-				.with_filter(filter.span_filter())
+				.with_filter(env_filter)
+				.with_filter(span_filter)
 				.boxed()),
 		}
 	}
