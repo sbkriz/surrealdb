@@ -6,7 +6,7 @@
 #
 # Example: tag v3.0.0 → branch releases/3.x (or custom branch name if provided).
 
-name: Initialise a new release
+name: Release
 
 on:
   workflow_dispatch:
