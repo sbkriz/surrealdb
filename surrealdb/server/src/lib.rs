@@ -48,7 +48,7 @@ pub use surrealdb as sdk;
 pub use surrealdb_core as core;
 use surrealdb_core::buc::BucketStoreProvider;
 use surrealdb_core::kvs::TransactionBuilderFactory;
-
+pub use telemetry::LoggingComposer;
 // Re-export the core crate in the same path used across internal modules
 // so that `crate::core::...` keeps working when used as a library target.
 
