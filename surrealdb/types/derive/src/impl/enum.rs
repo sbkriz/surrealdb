@@ -42,9 +42,14 @@ pub fn impl_enum(
 				if GUARD.with(|g| g.replace(true)) {
 					return #kind_ty::Any;
 				}
-				let result = { #kind_of };
-				GUARD.with(|g| g.set(false));
-				result
+				struct ResetGuard;
+				impl Drop for ResetGuard {
+					fn drop(&mut self) {
+						GUARD.with(|g| g.set(false));
+					}
+				}
+				let _guard = ResetGuard;
+				#kind_of
 			}
 		}
 	}
