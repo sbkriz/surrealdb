@@ -418,3 +418,56 @@ fn test_per_field_default_roundtrip() {
 	let parsed = StructWithFieldDefaults::from_value(value).unwrap();
 	assert_eq!(parsed, s);
 }
+
+////////////////////////////////////////////////////
+///////////// Recursive enum (issue #6829) /////////
+////////////////////////////////////////////////////
+
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+enum RecursiveEnum {
+	Leaf(String),
+	BoxChild(Box<RecursiveEnum>),
+	VecChildren(Vec<RecursiveEnum>),
+}
+
+#[test]
+fn test_recursive_enum_kind_of_does_not_stack_overflow() {
+	let kind = RecursiveEnum::kind_of();
+	let debug = format!("{:?}", kind);
+	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
+}
+
+#[test]
+fn test_recursive_enum_roundtrip() {
+	let value = RecursiveEnum::BoxChild(Box::new(RecursiveEnum::Leaf("hello".to_string())));
+	let converted = value.clone().into_value();
+	let parsed = RecursiveEnum::from_value(converted).unwrap();
+	assert_eq!(parsed, value);
+
+	let nested = RecursiveEnum::VecChildren(vec![
+		RecursiveEnum::Leaf("a".to_string()),
+		RecursiveEnum::BoxChild(Box::new(RecursiveEnum::Leaf("b".to_string()))),
+	]);
+	let converted = nested.clone().into_value();
+	let parsed = RecursiveEnum::from_value(converted).unwrap();
+	assert_eq!(parsed, nested);
+}
+
+////////////////////////////////////////////////////
+/////////// Recursive struct (issue #6829) /////////
+////////////////////////////////////////////////////
+
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+struct RecursiveStruct {
+	name: String,
+	children: Vec<RecursiveStruct>,
+}
+
+#[test]
+fn test_recursive_struct_kind_of_does_not_stack_overflow() {
+	let kind = RecursiveStruct::kind_of();
+	let debug = format!("{:?}", kind);
+	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
+}

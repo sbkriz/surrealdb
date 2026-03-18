@@ -36,7 +36,15 @@ pub fn impl_enum(
 			}
 
 			fn kind_of() -> #kind_ty {
-				#kind_of
+				std::thread_local! {
+					static GUARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+				}
+				if GUARD.with(|g| g.replace(true)) {
+					return #kind_ty::Any;
+				}
+				let result = { #kind_of };
+				GUARD.with(|g| g.set(false));
+				result
 			}
 		}
 	}
