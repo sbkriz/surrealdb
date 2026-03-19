@@ -471,3 +471,30 @@ fn test_recursive_struct_kind_of_does_not_stack_overflow() {
 	let debug = format!("{:?}", kind);
 	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
 }
+
+////////////////////////////////////////////////////
+///// Generic struct cross-monomorphization ////////
+////////////////////////////////////////////////////
+
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+struct GenericWrapper<T: SurrealValue + Clone + std::fmt::Debug + PartialEq> {
+	inner: T,
+	nested: Option<Box<GenericWrapper<String>>>,
+}
+
+#[test]
+fn test_generic_kind_of_no_false_recursion_across_monomorphizations() {
+	let kind = GenericWrapper::<i64>::kind_of();
+	let debug = format!("{:?}", kind);
+	// GenericWrapper<i64>'s `inner` field should be Int
+	assert!(debug.contains("Int"), "inner field of GenericWrapper<i64> should be Int");
+	// The nested GenericWrapper<String>'s `inner` field should be fully computed
+	// as String, NOT short-circuited to Any. A shared boolean guard would
+	// incorrectly return Any for the entire GenericWrapper<String>, producing
+	// zero occurrences of "String" in the debug output.
+	assert!(
+		debug.contains("String"),
+		"GenericWrapper<String>'s inner field should be computed as String, not short-circuited to Any: {debug}"
+	);
+}
