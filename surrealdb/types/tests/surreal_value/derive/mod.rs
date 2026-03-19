@@ -573,3 +573,24 @@ fn test_module_qualified_same_name_is_not_self_referential() {
 		"no field should be Any since nothing is self-referential: {debug}"
 	);
 }
+
+// -------------------------------------------------
+// Self keyword in field types
+// -------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+struct SelfRefStruct {
+	name: String,
+	child: Option<Box<Self>>,
+}
+
+#[test]
+fn test_self_keyword_is_detected_as_recursive() {
+	let kind = SelfRefStruct::kind_of();
+	let debug = format!("{kind:?}");
+	assert!(
+		debug.contains("Any"),
+		"Self-referential field via `Self` keyword should resolve to Kind::Any: {debug}"
+	);
+}
