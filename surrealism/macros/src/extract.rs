@@ -1,20 +1,28 @@
 use quote::quote;
 use syn::{FnArg, GenericArgument, PatType, PathArguments, ReturnType, Type, TypePath};
 
-/// Extract argument patterns, types, and return type info from a function signature.
+/// Extracted components of a function signature used for code generation.
 ///
-/// The `Result` detection is shallow: it only matches the last path segment named
-/// `Result` (e.g. `Result<T, E>`, `anyhow::Result<T>`). Aliased or deeply nested
-/// Result types are treated as non-Result returns.
-pub(crate) fn extract_fn_signature(
-	sig: &syn::Signature,
-) -> syn::Result<(
+/// Fields:
+/// - Argument patterns (e.g. variable bindings)
+/// - Tuple type combining all argument types
+/// - Tuple pattern destructuring all arguments
+/// - The inner return type (unwrapped from `Result` if applicable)
+/// - Whether the return type is a `Result`
+pub(crate) type FnSignatureParts = (
 	Vec<Box<syn::Pat>>,
 	proc_macro2::TokenStream,
 	proc_macro2::TokenStream,
 	proc_macro2::TokenStream,
 	bool,
-)> {
+);
+
+/// Extract argument patterns, types, and return type info from a function signature.
+///
+/// The `Result` detection is shallow: it only matches the last path segment named
+/// `Result` (e.g. `Result<T, E>`, `anyhow::Result<T>`). Aliased or deeply nested
+/// Result types are treated as non-Result returns.
+pub(crate) fn extract_fn_signature(sig: &syn::Signature) -> syn::Result<FnSignatureParts> {
 	let mut arg_patterns = Vec::new();
 	let mut arg_types: Vec<&Box<Type>> = Vec::new();
 

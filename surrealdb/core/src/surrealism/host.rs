@@ -52,10 +52,7 @@ impl Host {
 	/// bounds, so here we only need to restrict downward.
 	fn module_context(&self, config: &SurrealismConfig) -> Context {
 		let mut ctx = Context::new(&self.ctx);
-		let scoped = module_scoped_capabilities(
-			&ctx.get_capabilities(),
-			&config.capabilities,
-		);
+		let scoped = module_scoped_capabilities(&ctx.get_capabilities(), &config.capabilities);
 		ctx.add_capabilities(Arc::new(scoped));
 		ctx
 	}
@@ -78,8 +75,7 @@ fn module_scoped_capabilities(
 			caps = caps.with_functions(Targets::None);
 		}
 		FunctionTargets::Some(patterns) => {
-			let targets: Vec<FuncTarget> =
-				patterns.iter().filter_map(|p| FuncTarget::from_str(p).ok()).collect();
+			let targets = patterns.iter().filter_map(|p| FuncTarget::from_str(p).ok()).collect();
 			caps = caps.with_functions(Targets::Some(targets));
 		}
 		FunctionTargets::All => {}
@@ -88,8 +84,7 @@ fn module_scoped_capabilities(
 	if module.allow_net.is_empty() {
 		caps = caps.with_network_targets(Targets::None);
 	} else {
-		let targets: Vec<NetTarget> =
-			module.allow_net.iter().filter_map(|n| NetTarget::from_str(n).ok()).collect();
+		let targets = module.allow_net.iter().filter_map(|n| NetTarget::from_str(n).ok()).collect();
 		caps = caps.with_network_targets(Targets::Some(targets));
 	}
 
