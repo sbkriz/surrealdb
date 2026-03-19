@@ -10,16 +10,30 @@ pub use with::*;
 mod strategy;
 pub use strategy::*;
 
-/// Checks whether `ty` syntactically contains a path segment whose identifier
-/// matches `ident`. Used by the derive macro to detect direct self-reference
-/// in field types so that `kind_of()` can emit `Kind::Any` instead of recursing.
+/// Checks whether `ty` syntactically contains an unqualified reference to
+/// `ident`. Used by the derive macro to detect direct self-reference in field
+/// types so that `kind_of()` can emit `Kind::Any` instead of recursing.
+///
+/// Only single-segment (unqualified) paths are considered a match.
+/// Module-qualified paths like `other::MyType` are **not** treated as
+/// self-referential even if the last segment matches, because they refer to a
+/// different type in a different module. Generic arguments of all paths are
+/// still recursed into so that `Box<MyType>` or `other::Container<MyType>` are
+/// correctly detected.
 pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 	match ty {
-		syn::Type::Path(type_path) => type_path.path.segments.iter().any(|seg| {
-			if seg.ident == *ident {
+		syn::Type::Path(type_path) => {
+			let segments = &type_path.path.segments;
+			// A single-segment path like `MyType` is an unqualified reference
+			// and could be self-referential. Multi-segment paths like
+			// `other::MyType` point to a different type in another module.
+			if segments.len() == 1 && segments[0].ident == *ident {
 				return true;
 			}
-			match &seg.arguments {
+			// Recurse into generic arguments of all segments, since
+			// `Box<MyType>` or `some_mod::Container<MyType>` should still be
+			// detected via their type parameters.
+			segments.iter().any(|seg| match &seg.arguments {
 				syn::PathArguments::AngleBracketed(args) => args.args.iter().any(|arg| match arg {
 					syn::GenericArgument::Type(inner) => type_contains_ident(inner, ident),
 					_ => false,
@@ -29,8 +43,8 @@ pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 						|| matches!(&args.output, syn::ReturnType::Type(_, ret) if type_contains_ident(ret, ident))
 				}
 				syn::PathArguments::None => false,
-			}
-		}),
+			})
+		}
 		syn::Type::Reference(r) => type_contains_ident(&r.elem, ident),
 		syn::Type::Slice(s) => type_contains_ident(&s.elem, ident),
 		syn::Type::Array(a) => type_contains_ident(&a.elem, ident),
