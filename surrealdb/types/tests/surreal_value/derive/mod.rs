@@ -434,7 +434,7 @@ enum RecursiveEnum {
 #[test]
 fn test_recursive_enum_kind_of_does_not_stack_overflow() {
 	let kind = RecursiveEnum::kind_of();
-	let debug = format!("{:?}", kind);
+	let debug = format!("{kind:?}");
 	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
 }
 
@@ -468,7 +468,7 @@ struct RecursiveStruct {
 #[test]
 fn test_recursive_struct_kind_of_does_not_stack_overflow() {
 	let kind = RecursiveStruct::kind_of();
-	let debug = format!("{:?}", kind);
+	let debug = format!("{kind:?}");
 	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
 }
 
@@ -513,7 +513,7 @@ fn test_generic_kind_of_no_false_recursion_across_monomorphizations() {
 	// Kind::Any, so the `nested` field (which contains GenericWrapper) is
 	// always Any regardless of the type parameter.
 	let i64_kind = GenericWrapper::<i64>::kind_of();
-	let i64_debug = format!("{:?}", i64_kind);
+	let i64_debug = format!("{i64_kind:?}");
 	assert!(
 		i64_debug.contains("Int"),
 		"inner field of GenericWrapper<i64> should be Int: {i64_debug}"
@@ -526,7 +526,7 @@ fn test_generic_kind_of_no_false_recursion_across_monomorphizations() {
 	// Calling GenericWrapper<String>::kind_of() independently should produce
 	// String for the inner field, confirming each monomorphization is correct.
 	let string_kind = GenericWrapper::<String>::kind_of();
-	let string_debug = format!("{:?}", string_kind);
+	let string_debug = format!("{string_kind:?}");
 	assert!(
 		string_debug.contains("String"),
 		"inner field of GenericWrapper<String> should be String: {string_debug}"
