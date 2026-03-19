@@ -419,9 +419,9 @@ fn test_per_field_default_roundtrip() {
 	assert_eq!(parsed, s);
 }
 
-////////////////////////////////////////////////////
-///////////// Recursive enum (issue #6829) /////////
-////////////////////////////////////////////////////
+// -------------------------------------------------
+// Recursive enum (issue #6829)
+// -------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, SurrealValue)]
 #[surreal(crate = "surrealdb_types")]
@@ -454,9 +454,9 @@ fn test_recursive_enum_roundtrip() {
 	assert_eq!(parsed, nested);
 }
 
-////////////////////////////////////////////////////
-/////////// Recursive struct (issue #6829) /////////
-////////////////////////////////////////////////////
+// -------------------------------------------------
+// Recursive struct (issue #6829)
+// -------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, SurrealValue)]
 #[surreal(crate = "surrealdb_types")]
@@ -495,9 +495,9 @@ fn test_recursive_struct_roundtrip() {
 	assert_eq!(parsed, value);
 }
 
-////////////////////////////////////////////////////
-///// Generic struct cross-monomorphization ////////
-////////////////////////////////////////////////////
+// -------------------------------------------------
+// Generic struct cross-monomorphization
+// -------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq, SurrealValue)]
 #[surreal(crate = "surrealdb_types")]
@@ -534,5 +534,42 @@ fn test_generic_kind_of_no_false_recursion_across_monomorphizations() {
 	assert!(
 		string_debug.contains("Any"),
 		"nested field should be Any (self-referential): {string_debug}"
+	);
+}
+
+// -------------------------------------------------
+// Module-qualified field is not self-referential
+// -------------------------------------------------
+
+mod other {
+	use super::*;
+
+	#[derive(Clone, Debug, PartialEq, SurrealValue)]
+	#[surreal(crate = "surrealdb_types")]
+	pub struct Shared {
+		pub value: i64,
+	}
+}
+
+/// A struct whose name matches the last segment of a module-qualified field
+/// type (`other::Shared`). The field must NOT be treated as self-referential
+/// because the fully-qualified path points to a different type.
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+struct Shared {
+	name: String,
+	foreign: other::Shared,
+}
+
+#[test]
+fn test_module_qualified_same_name_is_not_self_referential() {
+	let kind = Shared::kind_of();
+	let debug = format!("{kind:?}");
+	// `other::Shared` is a different type than `Shared` — its kind should be
+	// fully computed, not short-circuited to Kind::Any.
+	assert!(debug.contains("Int"), "foreign field should have its kind fully computed: {debug}");
+	assert!(
+		!debug.contains("Any"),
+		"no field should be Any since nothing is self-referential: {debug}"
 	);
 }
