@@ -594,3 +594,24 @@ fn test_self_keyword_is_detected_as_recursive() {
 		"Self-referential field via `Self` keyword should resolve to Kind::Any: {debug}"
 	);
 }
+
+// -------------------------------------------------
+// self::Type path in field types
+// -------------------------------------------------
+
+#[derive(Clone, Debug, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb_types")]
+struct SelfModuleRef {
+	name: String,
+	child: Option<Box<self::SelfModuleRef>>,
+}
+
+#[test]
+fn test_self_module_path_is_detected_as_recursive() {
+	let kind = SelfModuleRef::kind_of();
+	let debug = format!("{kind:?}");
+	assert!(
+		debug.contains("Any"),
+		"Self-referential field via `self::Type` path should resolve to Kind::Any: {debug}"
+	);
+}
