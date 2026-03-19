@@ -80,7 +80,7 @@ pub fn impl_struct(
 		},
 		With::Value(x) => x,
 	};
-	let kind_of = fields.kind_of(&strategy, crate_path);
+	let kind_of = fields.kind_of(name, &strategy, crate_path);
 
 	let let_fields = if fields.has_fields() {
 		quote!( let Self #match_fields = self; )
@@ -112,19 +112,6 @@ pub fn impl_struct(
 			}
 
 			fn kind_of() -> #kind_ty {
-				std::thread_local! {
-					static GUARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-				}
-				if GUARD.with(|g| g.replace(true)) {
-					return #kind_ty::Any;
-				}
-				struct ResetGuard;
-				impl Drop for ResetGuard {
-					fn drop(&mut self) {
-						GUARD.with(|g| g.set(false));
-					}
-				}
-				let _guard = ResetGuard;
 				#kind_of
 			}
 		}

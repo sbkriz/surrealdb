@@ -13,7 +13,7 @@ pub fn impl_enum(
 	let into_value = r#enum.into_value(&r#enum.attrs, crate_path);
 	let from_value = r#enum.from_value(&name.to_string(), &r#enum.attrs, crate_path);
 	let is_value = r#enum.is_value(&r#enum.attrs, crate_path);
-	let kind_of = r#enum.kind_of(&r#enum.attrs, crate_path);
+	let kind_of = r#enum.kind_of(name, &r#enum.attrs, crate_path);
 
 	let (impl_generics, type_generics, where_clause) = generics.split_for_impl();
 
@@ -36,19 +36,6 @@ pub fn impl_enum(
 			}
 
 			fn kind_of() -> #kind_ty {
-				std::thread_local! {
-					static GUARD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-				}
-				if GUARD.with(|g| g.replace(true)) {
-					return #kind_ty::Any;
-				}
-				struct ResetGuard;
-				impl Drop for ResetGuard {
-					fn drop(&mut self) {
-						GUARD.with(|g| g.set(false));
-					}
-				}
-				let _guard = ResetGuard;
 				#kind_of
 			}
 		}

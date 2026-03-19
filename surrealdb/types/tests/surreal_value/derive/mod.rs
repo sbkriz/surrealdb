@@ -485,16 +485,31 @@ struct GenericWrapper<T: SurrealValue + Clone + std::fmt::Debug + PartialEq> {
 
 #[test]
 fn test_generic_kind_of_no_false_recursion_across_monomorphizations() {
-	let kind = GenericWrapper::<i64>::kind_of();
-	let debug = format!("{:?}", kind);
-	// GenericWrapper<i64>'s `inner` field should be Int
-	assert!(debug.contains("Int"), "inner field of GenericWrapper<i64> should be Int");
-	// The nested GenericWrapper<String>'s `inner` field should be fully computed
-	// as String, NOT short-circuited to Any. A shared boolean guard would
-	// incorrectly return Any for the entire GenericWrapper<String>, producing
-	// zero occurrences of "String" in the debug output.
+	// Each monomorphization should correctly compute its non-recursive fields.
+	// The compile-time detection marks fields containing the type name as
+	// Kind::Any, so the `nested` field (which contains GenericWrapper) is
+	// always Any regardless of the type parameter.
+	let i64_kind = GenericWrapper::<i64>::kind_of();
+	let i64_debug = format!("{:?}", i64_kind);
 	assert!(
-		debug.contains("String"),
-		"GenericWrapper<String>'s inner field should be computed as String, not short-circuited to Any: {debug}"
+		i64_debug.contains("Int"),
+		"inner field of GenericWrapper<i64> should be Int: {i64_debug}"
+	);
+	assert!(
+		i64_debug.contains("Any"),
+		"nested field should be Any (self-referential): {i64_debug}"
+	);
+
+	// Calling GenericWrapper<String>::kind_of() independently should produce
+	// String for the inner field, confirming each monomorphization is correct.
+	let string_kind = GenericWrapper::<String>::kind_of();
+	let string_debug = format!("{:?}", string_kind);
+	assert!(
+		string_debug.contains("String"),
+		"inner field of GenericWrapper<String> should be String: {string_debug}"
+	);
+	assert!(
+		string_debug.contains("Any"),
+		"nested field should be Any (self-referential): {string_debug}"
 	);
 }
