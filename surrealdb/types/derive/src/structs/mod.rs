@@ -26,9 +26,14 @@ pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 			let segments = &type_path.path.segments;
 			// A single-segment path like `MyType` or `Self` is an unqualified
 			// reference and could be self-referential. `Self` in a struct/enum
-			// definition always refers to the type being defined. Multi-segment
-			// paths like `other::MyType` point to a different type.
+			// definition always refers to the type being defined. A two-segment
+			// path starting with `self` (e.g. `self::MyType`) also refers to
+			// the current module's type. Other multi-segment paths like
+			// `other::MyType` point to a different type.
 			if segments.len() == 1 && (segments[0].ident == *ident || segments[0].ident == "Self") {
+				return true;
+			}
+			if segments.len() == 2 && segments[0].ident == "self" && segments[1].ident == *ident {
 				return true;
 			}
 			// Recurse into generic arguments of all segments, since
