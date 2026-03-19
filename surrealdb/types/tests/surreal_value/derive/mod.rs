@@ -472,6 +472,29 @@ fn test_recursive_struct_kind_of_does_not_stack_overflow() {
 	assert!(debug.contains("Any"), "Recursive references should resolve to Kind::Any");
 }
 
+#[test]
+fn test_recursive_struct_roundtrip() {
+	let value = RecursiveStruct {
+		name: "root".to_string(),
+		children: vec![
+			RecursiveStruct {
+				name: "child1".to_string(),
+				children: vec![],
+			},
+			RecursiveStruct {
+				name: "child2".to_string(),
+				children: vec![RecursiveStruct {
+					name: "grandchild".to_string(),
+					children: vec![],
+				}],
+			},
+		],
+	};
+	let converted = value.clone().into_value();
+	let parsed = RecursiveStruct::from_value(converted).unwrap();
+	assert_eq!(parsed, value);
+}
+
 ////////////////////////////////////////////////////
 ///// Generic struct cross-monomorphization ////////
 ////////////////////////////////////////////////////
