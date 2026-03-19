@@ -11,8 +11,8 @@ mod strategy;
 pub use strategy::*;
 
 /// Checks whether `ty` syntactically contains an unqualified reference to
-/// `ident`. Used by the derive macro to detect direct self-reference in field
-/// types so that `kind_of()` can emit `Kind::Any` instead of recursing.
+/// `ident` (or `Self`). Used by the derive macro to detect direct self-reference
+/// in field types so that `kind_of()` can emit `Kind::Any` instead of recursing.
 ///
 /// Only single-segment (unqualified) paths are considered a match.
 /// Module-qualified paths like `other::MyType` are **not** treated as
@@ -24,10 +24,11 @@ pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 	match ty {
 		syn::Type::Path(type_path) => {
 			let segments = &type_path.path.segments;
-			// A single-segment path like `MyType` is an unqualified reference
-			// and could be self-referential. Multi-segment paths like
-			// `other::MyType` point to a different type in another module.
-			if segments.len() == 1 && segments[0].ident == *ident {
+			// A single-segment path like `MyType` or `Self` is an unqualified
+			// reference and could be self-referential. `Self` in a struct/enum
+			// definition always refers to the type being defined. Multi-segment
+			// paths like `other::MyType` point to a different type.
+			if segments.len() == 1 && (segments[0].ident == *ident || segments[0].ident == "Self") {
 				return true;
 			}
 			// Recurse into generic arguments of all segments, since
