@@ -10,9 +10,9 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use async_channel::Sender;
 #[cfg(feature = "surrealism")]
-use surrealism_runtime::controller::Runtime;
-#[cfg(feature = "surrealism")]
 use surrealism_runtime::package::{SurrealismPackage, UnpackOptions};
+#[cfg(feature = "surrealism")]
+use surrealism_runtime::runtime::Runtime;
 #[cfg(feature = "http")]
 use url::Url;
 use web_time::Instant;
@@ -989,7 +989,21 @@ impl Context {
 				};
 				let package =
 					SurrealismPackage::from_reader(std::io::Cursor::new(surli), &unpack_opts)?;
-				let runtime = Arc::new(Runtime::new(package)?);
+
+				self.get_capabilities()
+					.validate_surrealism_capabilities(package.config.capabilities.clone())?;
+
+				let server_pool_size = *crate::cnf::SURREALISM_MAX_POOL_SIZE;
+				let server_max_memory = *crate::cnf::SURREALISM_MAX_MEMORY;
+				let server_max_execution_time =
+					crate::cnf::SURREALISM_MAX_EXECUTION_TIME.map(std::time::Duration::from_millis);
+
+				let runtime = Arc::new(Runtime::new(
+					package,
+					server_pool_size,
+					server_max_memory,
+					server_max_execution_time,
+				)?);
 
 				Ok(runtime)
 			})

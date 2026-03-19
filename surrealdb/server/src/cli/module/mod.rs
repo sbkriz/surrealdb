@@ -1,6 +1,7 @@
 mod build;
 mod host;
 mod info;
+mod init_cmd;
 mod run;
 mod sig;
 
@@ -12,6 +13,25 @@ use clap::Subcommand;
 /// Module command arguments
 #[derive(Debug, Subcommand)]
 pub enum ModuleCommand {
+	/// Initialize a new Surrealism module project
+	Init {
+		/// Non-interactive mode (requires --org)
+		#[arg(long)]
+		headless: bool,
+
+		/// Organisation name
+		#[arg(long)]
+		org: Option<String>,
+
+		/// Module name (defaults to directory name)
+		#[arg(long)]
+		name: Option<String>,
+
+		/// Path to create the project (defaults to current directory)
+		#[arg(value_name = "PATH")]
+		path: Option<PathBuf>,
+	},
+
 	/// Run a function with arguments
 	Run {
 		/// Arguments passed to function (repeatable)
@@ -69,6 +89,12 @@ pub(super) fn parse_value(s: &str) -> Result<surrealdb_types::Value, String> {
 /// Initialize the module subcommand
 pub async fn init(cmd: ModuleCommand) -> Result<()> {
 	match cmd {
+		ModuleCommand::Init {
+			headless,
+			org,
+			name,
+			path,
+		} => init_cmd::init(path, org, name, headless).await,
 		ModuleCommand::Run {
 			args,
 			fnc,

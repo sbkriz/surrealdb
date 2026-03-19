@@ -1,572 +1,301 @@
-//! WASM execution runtime and controller.
-//!
-//! # Architecture
-//!
-//! - **`Runtime`**: Compiled WASM module or component. Thread-safe, shareable (`Arc<Runtime>`).
-//!   Compile once, instantiate many times. Supports both WASI P1 (core modules) and P2 (component
-//!   model).
-//!
-//! - **`Controller`**: Per-execution instance. Single-threaded, created from Runtime. Cheap to
-//!   create, can be done per-request or pooled.
-//!
-//! # Concurrency Patterns
-//!
-//! ```no_run
-//! use std::sync::Arc;
-//! use surrealism_runtime::{controller::Runtime, package::SurrealismPackage};
-//!
-//! // Compile once (expensive)
-//! let runtime = Arc::new(Runtime::new(package)?);
-//!
-//! // For each concurrent request:
-//! let runtime = runtime.clone();
-//! tokio::spawn(async move {
-//!     let context = Box::new(MyContext::new());
-//!     let mut controller = runtime.new_controller(context).await?;
-//!     controller.invoke(None, args).await
-//! });
-//! # Ok::<(), surrealism_types::err::SurrealismError>(())
-//! ```
+//! Per-execution WASM controller.
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
 
-use anyhow::Context;
-use async_trait::async_trait;
 use surrealism_types::args::Args;
-use surrealism_types::err::{PrefixErr, SurrealismError, SurrealismResult};
-use surrealism_types::transfer::AsyncTransfer;
-use tempfile::TempDir;
-use wasmtime::component::ResourceTable;
+use surrealism_types::err::{SurrealismError, SurrealismResult};
 use wasmtime::*;
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
-use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+use web_time::Instant;
 
-use crate::config::SurrealismConfig;
-use crate::host::{InvocationContext, implement_p1_host_functions, implement_p2_host_functions};
-use crate::package::{ModuleKind, SurrealismPackage};
+use crate::epoch::EPOCH_TICK_MS;
+use crate::host::{InvocationContext, NullContext};
+use crate::store::StoreData;
 
-// ---------------------------------------------------------------------------
-// Store data
-// ---------------------------------------------------------------------------
-
-/// Store data for WASI P1 (core module) execution.
-pub struct P1StoreData {
-	pub wasi: WasiP1Ctx,
-	pub config: Arc<SurrealismConfig>,
-	pub(crate) context: Box<dyn InvocationContext>,
+fn effective_timeout(
+	context_remaining: Option<Duration>,
+	module_limit: Option<Duration>,
+) -> Option<Duration> {
+	[context_remaining, module_limit].into_iter().flatten().min()
 }
 
-impl fmt::Debug for P1StoreData {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "P1StoreData {{ config: {:?}, .. }}", self.config)
-	}
-}
-
-/// Store data for WASI P2 (component model) execution.
-pub struct P2StoreData {
-	pub wasi: WasiCtx,
-	pub table: ResourceTable,
-	pub config: Arc<SurrealismConfig>,
-	pub(crate) context: Box<dyn InvocationContext>,
-}
-
-impl WasiView for P2StoreData {
-	fn ctx(&mut self) -> WasiCtxView<'_> {
-		WasiCtxView {
-			ctx: &mut self.wasi,
-			table: &mut self.table,
-		}
-	}
-}
-
-impl fmt::Debug for P2StoreData {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(f, "P2StoreData {{ config: {:?}, .. }}", self.config)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Runtime (compiled artefact — shared, immutable, thread-safe)
-// ---------------------------------------------------------------------------
-
-enum RuntimeKind {
-	P1 {
-		engine: Engine,
-		module: Module,
-		linker: Linker<P1StoreData>,
-	},
-	P2 {
-		engine: Engine,
-		component: component::Component,
-		linker: component::Linker<P2StoreData>,
-	},
-}
-
-impl fmt::Debug for RuntimeKind {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::P1 {
-				..
-			} => write!(f, "RuntimeKind::P1"),
-			Self::P2 {
-				..
-			} => write!(f, "RuntimeKind::P2"),
-		}
-	}
-}
-
-/// Compiled WASM runtime. Thread-safe, can be shared across threads via Arc.
-/// Compiles WASM once, then each controller gets its own isolated Store/Instance.
-pub struct Runtime {
-	inner: RuntimeKind,
-	config: Arc<SurrealismConfig>,
-	wasm_size: usize,
-	/// Holds the extracted filesystem directory alive for the lifetime of the runtime.
-	/// When present, this directory is mounted as a read-only preopened dir for WASM modules.
-	fs_dir: Option<TempDir>,
-}
-
-impl fmt::Debug for Runtime {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("Runtime")
-			.field("inner", &self.inner)
-			.field("config", &self.config)
-			.field("wasm_size", &self.wasm_size)
-			.field("fs_dir", &self.fs_dir.as_ref().map(|d| d.path()))
-			.finish()
-	}
-}
-
-fn build_engine_config() -> Config {
-	let mut cfg = Config::new();
-	#[cfg(debug_assertions)]
-	{
-		cfg.strategy(Strategy::Winch);
-	}
-	#[cfg(not(debug_assertions))]
-	{
-		cfg.cranelift_opt_level(OptLevel::Speed);
-	}
-	cfg
-}
-
-impl Runtime {
-	/// Compile the WASM and prepare the runtime.
-	/// This is expensive — do it once and share via `Arc<Runtime>`.
-	pub fn new(
-		SurrealismPackage {
-			wasm,
-			config,
-			kind,
-			fs,
-		}: SurrealismPackage,
-	) -> SurrealismResult<Self> {
-		let config = Arc::new(config);
-		let wasm_size = wasm.len();
-
-		let inner = match kind {
-			ModuleKind::CoreModule => Self::build_p1(&wasm)?,
-			ModuleKind::Component => Self::build_p2(&wasm)?,
-		};
-
-		Ok(Self {
-			inner,
-			config,
-			wasm_size,
-			fs_dir: fs,
-		})
-	}
-
-	/// Returns the size of the original WASM binary in bytes.
-	pub fn wasm_size(&self) -> usize {
-		self.wasm_size
-	}
-
-	fn build_p1(wasm: &[u8]) -> SurrealismResult<RuntimeKind> {
-		let engine_config = build_engine_config();
-		let engine = Engine::new(&engine_config)?;
-		let module =
-			Module::new(&engine, wasm).prefix_err(|| "Failed to construct module from bytes")?;
-
-		let mut linker: Linker<P1StoreData> = Linker::new(&engine);
-		p1::add_to_linker_async(&mut linker, |data| &mut data.wasi)
-			.prefix_err(|| "failed to add WASI P1 to linker")?;
-		implement_p1_host_functions(&mut linker)
-			.prefix_err(|| "failed to implement P1 host functions")?;
-
-		Ok(RuntimeKind::P1 {
-			engine,
-			module,
-			linker,
-		})
-	}
-
-	fn build_p2(wasm: &[u8]) -> SurrealismResult<RuntimeKind> {
-		let engine_config = build_engine_config();
-		let engine = Engine::new(&engine_config)?;
-		let comp = component::Component::new(&engine, wasm)
-			.prefix_err(|| "Failed to construct component from bytes")?;
-
-		let mut linker: component::Linker<P2StoreData> = component::Linker::new(&engine);
-		wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-			.prefix_err(|| "failed to add WASI P2 to component linker")?;
-		implement_p2_host_functions(&mut linker)
-			.prefix_err(|| "failed to implement P2 host functions")?;
-
-		Ok(RuntimeKind::P2 {
-			engine,
-			component: comp,
-			linker,
-		})
-	}
-
-	/// Create a new Controller with its own isolated Store and Instance.
-	pub async fn new_controller(
-		&self,
-		context: Box<dyn InvocationContext>,
-	) -> SurrealismResult<Controller> {
-		let fs_root = self.fs_dir.as_ref().map(|d| d.path());
-
-		match &self.inner {
-			RuntimeKind::P1 {
-				engine,
-				module,
-				linker,
-			} => {
-				let wasi_ctx = super::wasi_context::build_p1(fs_root)?;
-				let store_data = P1StoreData {
-					wasi: wasi_ctx,
-					config: self.config.clone(),
-					context,
-				};
-				let mut store = Store::new(engine, store_data);
-				let instance = linker
-					.instantiate_async(&mut store, module)
-					.await
-					.map_err(SurrealismError::Compilation)?;
-				let memory = instance
-					.get_memory(&mut store, "memory")
-					.context("WASM module must export 'memory'")?;
-				let alloc_fn = instance
-					.get_typed_func::<(u32,), i32>(&mut store, "__sr_alloc")
-					.map_err(|e| anyhow::anyhow!("WASM module must export '__sr_alloc': {e}"))?;
-				let free_fn =
-					instance
-						.get_typed_func::<(u32, u32), i32>(&mut store, "__sr_free")
-						.map_err(|e| anyhow::anyhow!("WASM module must export '__sr_free': {e}"))?;
-
-				Ok(Controller {
-					inner: ControllerKind::P1(P1Controller {
-						store,
-						instance,
-						memory,
-						alloc_fn,
-						free_fn,
-					}),
-				})
-			}
-			RuntimeKind::P2 {
-				engine,
-				component,
-				linker,
-			} => {
-				let (wasi_ctx, table) = super::wasi_context::build_p2(fs_root)?;
-				let store_data = P2StoreData {
-					wasi: wasi_ctx,
-					table,
-					config: self.config.clone(),
-					context,
-				};
-				let mut store = Store::new(engine, store_data);
-				let instance = linker
-					.instantiate_async(&mut store, component)
-					.await
-					.map_err(SurrealismError::Compilation)?;
-
-				Ok(Controller {
-					inner: ControllerKind::P2(P2Controller {
-						store,
-						instance,
-					}),
-				})
-			}
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Controller (per-execution instance)
-// ---------------------------------------------------------------------------
-
-enum ControllerKind {
-	P1(P1Controller),
-	P2(P2Controller),
-}
-
-impl fmt::Debug for ControllerKind {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		match self {
-			Self::P1(_) => write!(f, "ControllerKind::P1"),
-			Self::P2(_) => write!(f, "ControllerKind::P2"),
-		}
-	}
-}
-
-/// Per-execution controller. Not thread-safe — create one per concurrent call.
-/// Lightweight, created from Runtime.
-#[derive(Debug)]
+/// Per-execution controller. Not thread-safe — use one at a time.
+/// Can be reused across invocations by swapping the host context.
+/// WASM linear memory persists between calls, so Rust statics survive.
 pub struct Controller {
-	inner: ControllerKind,
+	store: Store<StoreData>,
+	invoke_fn: component::Func,
+	/// Only present when the module exports the `function-args` function.
+	args_fn: Option<component::Func>,
+	/// Only present when the module exports the `function-returns` function.
+	returns_fn: Option<component::Func>,
+	/// Only present when the module exports the `list-functions` function.
+	list_fn: Option<component::Func>,
+	init_fn: Option<component::Func>,
+	/// Effective execution time limit from module config + server cap (without
+	/// context timeout, which varies per invocation).
+	module_execution_time: Option<Duration>,
+	/// Shared epoch counter from the global engine, used to compute safe epoch deltas.
+	epoch_counter: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl fmt::Debug for Controller {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Controller").finish_non_exhaustive()
+	}
 }
 
 impl Controller {
-	pub async fn init(&mut self) -> SurrealismResult<()> {
-		match &mut self.inner {
-			ControllerKind::P1(c) => c.init().await,
-			ControllerKind::P2(c) => c.init().await,
+	#[allow(clippy::too_many_arguments)]
+	pub(crate) fn new(
+		store: Store<StoreData>,
+		invoke_fn: component::Func,
+		args_fn: Option<component::Func>,
+		returns_fn: Option<component::Func>,
+		list_fn: Option<component::Func>,
+		init_fn: Option<component::Func>,
+		module_execution_time: Option<Duration>,
+		epoch_counter: Arc<std::sync::atomic::AtomicU64>,
+	) -> Self {
+		Self {
+			store,
+			invoke_fn,
+			args_fn,
+			returns_fn,
+			list_fn,
+			init_fn,
+			module_execution_time,
+			epoch_counter,
 		}
 	}
 
+	/// Replace the invocation context. Used when reusing a pooled controller
+	/// for a new request with different permissions.
+	pub fn set_context(&mut self, context: Box<dyn InvocationContext>) {
+		self.store.data_mut().context = context;
+	}
+
+	/// Clear the invocation context, replacing it with a NullContext.
+	/// Called before returning a controller to the pool so no per-request state
+	/// (auth, permissions, KV) is retained.
+	pub fn clear_context(&mut self) {
+		self.store.data_mut().context = Box::new(NullContext);
+	}
+
+	/// Reset the epoch deadline to the maximum safe value. Wasmtime internally
+	/// computes `current_epoch + delta` with wrapping arithmetic, so passing
+	/// `u64::MAX` overflows once the epoch advances past 0. We subtract the
+	/// shadow counter (always >= engine epoch thanks to the ticker thread
+	/// increment ordering) plus a small margin so that a concurrent tick
+	/// between the load and the `set_epoch_deadline` call cannot overflow.
+	pub fn reset_epoch_deadline(&mut self) {
+		let epoch = self.epoch_counter.load(Ordering::Acquire);
+		self.store.set_epoch_deadline(u64::MAX.saturating_sub(epoch).saturating_sub(1));
+	}
+
+	/// Apply the module-level execution time limit as an epoch deadline.
+	/// If no limit is configured, resets to the maximum safe value.
+	fn apply_module_deadline(&mut self) {
+		match self.module_execution_time {
+			Some(timeout) => {
+				let ticks = (timeout.as_millis() as u64) / EPOCH_TICK_MS;
+				self.store.set_epoch_deadline(ticks.max(1));
+			}
+			None => self.reset_epoch_deadline(),
+		}
+	}
+
+	#[tracing::instrument(skip_all)]
+	pub async fn init(&mut self) -> SurrealismResult<()> {
+		let t0 = Instant::now();
+		let Some(func) = self.init_fn else {
+			tracing::debug!("controller.init(): no init_fn, skipping");
+			return Ok(());
+		};
+		self.apply_module_deadline();
+		tracing::info!(
+			module_execution_time = ?self.module_execution_time,
+			"controller.init(): calling init function..."
+		);
+		let typed = func.typed::<(), (Result<(), String>,)>(&self.store)?;
+		match typed.call_async(&mut self.store, ()).await {
+			Ok((result,)) => {
+				tracing::info!(elapsed = ?t0.elapsed(), ok = result.is_ok(), "controller.init(): completed");
+				result.map_err(SurrealismError::FunctionCallError)
+			}
+			Err(e) => {
+				if e.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
+					tracing::error!(elapsed = ?t0.elapsed(), "controller.init(): timed out");
+					return Err(SurrealismError::Timeout {
+						effective: self.module_execution_time,
+						context_timeout: None,
+						module_limit: self.module_execution_time,
+					});
+				}
+				tracing::error!(elapsed = ?t0.elapsed(), error = %e, "controller.init(): WASM TRAP");
+				Err(e.into())
+			}
+		}
+	}
+
+	#[tracing::instrument(skip_all, fields(name))]
 	pub async fn invoke<A: Args>(
 		&mut self,
 		name: Option<String>,
 		args: A,
 	) -> SurrealismResult<surrealdb_types::Value> {
-		match &mut self.inner {
-			ControllerKind::P1(c) => c.invoke(name, args).await,
-			ControllerKind::P2(c) => c.invoke(name, args).await,
-		}
+		self.invoke_with_timeout(name, args, None).await
 	}
 
-	pub async fn args(
-		&mut self,
-		name: Option<String>,
-	) -> SurrealismResult<Vec<surrealdb_types::Kind>> {
-		match &mut self.inner {
-			ControllerKind::P1(c) => c.args(name).await,
-			ControllerKind::P2(c) => c.args(name).await,
-		}
-	}
-
-	pub async fn returns(
-		&mut self,
-		name: Option<String>,
-	) -> SurrealismResult<surrealdb_types::Kind> {
-		match &mut self.inner {
-			ControllerKind::P1(c) => c.returns(name).await,
-			ControllerKind::P2(c) => c.returns(name).await,
-		}
-	}
-
-	pub async fn list(&mut self) -> SurrealismResult<Vec<String>> {
-		match &mut self.inner {
-			ControllerKind::P1(c) => c.list(),
-			ControllerKind::P2(c) => c.list().await,
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// P1 Controller (core module path — existing logic, unchanged)
-// ---------------------------------------------------------------------------
-
-pub(crate) struct P1Controller {
-	pub(super) store: Store<P1StoreData>,
-	pub(super) instance: Instance,
-	pub(super) memory: Memory,
-	alloc_fn: TypedFunc<(u32,), i32>,
-	free_fn: TypedFunc<(u32, u32), i32>,
-}
-
-impl P1Controller {
-	async fn init(&mut self) -> SurrealismResult<()> {
-		let init: Option<Extern> = self.instance.get_export(&mut self.store, "__sr_init");
-		if init.is_none() {
-			return Ok(());
-		}
-		let init = self.instance.get_typed_func::<(), ()>(&mut self.store, "__sr_init")?;
-		init.call_async(&mut self.store, ()).await?;
-		Ok(())
-	}
-
-	async fn invoke<A: Args>(
+	/// Invoke with an optional context-level timeout. The effective deadline is
+	/// `min(context_remaining, module_config, server_cap)`.
+	#[tracing::instrument(skip_all, fields(name))]
+	pub async fn invoke_with_timeout<A: Args>(
 		&mut self,
 		name: Option<String>,
 		args: A,
+		context_timeout: Option<Duration>,
 	) -> SurrealismResult<surrealdb_types::Value> {
-		let name = format!("__sr_fnc__{}", name.unwrap_or_default());
-		let args = AsyncTransfer::transfer(args.to_values(), self).await?;
-		let invoke = self.instance.get_typed_func::<(u32,), (i32,)>(&mut self.store, &name)?;
-		let (ptr,) = invoke.call_async(&mut self.store, (*args,)).await?;
-		if ptr == -1 {
-			return Err(SurrealismError::FunctionCallError(
-				"WASM function returned error (-1)".to_string(),
-			));
-		}
-		let ptr_u32: u32 = ptr.try_into()?;
-		let inner: anyhow::Result<surrealdb_types::Value> =
-			AsyncTransfer::receive(ptr_u32.into(), self).await?;
-		Ok(inner?)
-	}
+		let display_name = name.as_deref().unwrap_or("<default>");
+		let effective = effective_timeout(context_timeout, self.module_execution_time);
 
-	async fn args(&mut self, name: Option<String>) -> SurrealismResult<Vec<surrealdb_types::Kind>> {
-		let name = format!("__sr_args__{}", name.unwrap_or_default());
-		let args = self.instance.get_typed_func::<(), (i32,)>(&mut self.store, &name)?;
-		let (ptr,) = args.call_async(&mut self.store, ()).await?;
-		Ok(AsyncTransfer::receive(ptr.try_into()?, self).await?)
-	}
-
-	async fn returns(&mut self, name: Option<String>) -> SurrealismResult<surrealdb_types::Kind> {
-		let name = format!("__sr_returns__{}", name.unwrap_or_default());
-		let returns = self.instance.get_typed_func::<(), (i32,)>(&mut self.store, &name)?;
-		let (ptr,) = returns.call_async(&mut self.store, ()).await?;
-		if ptr == -1 {
-			return Err(SurrealismError::FunctionCallError(
-				"WASM function returned error (-1)".into(),
-			));
-		}
-		Ok(AsyncTransfer::receive(ptr.try_into()?, self).await?)
-	}
-
-	fn list(&mut self) -> SurrealismResult<Vec<String>> {
-		let mut functions = Vec::new();
-		let function_names: Vec<String> = {
-			let exports = self.instance.exports(&mut self.store);
-			exports
-				.filter_map(|export| {
-					let name = export.name();
-					if name.starts_with("__sr_fnc__") {
-						Some(name.to_string())
-					} else {
-						None
-					}
-				})
-				.collect()
-		};
-		for name in function_names {
-			if let Some(export) = self.instance.get_export(&mut self.store, &name)
-				&& let ExternType::Func(_) = export.ty(&self.store)
-			{
-				let function_name = name.strip_prefix("__sr_fnc__").unwrap_or(&name).to_string();
-				functions.push(function_name);
+		match effective {
+			Some(timeout) => {
+				let ticks = (timeout.as_millis() as u64) / EPOCH_TICK_MS;
+				self.store.set_epoch_deadline(ticks.max(1));
+			}
+			None => {
+				self.reset_epoch_deadline();
 			}
 		}
-		Ok(functions)
-	}
-}
 
-#[async_trait]
-impl surrealism_types::controller::AsyncMemoryController for P1Controller {
-	async fn alloc(&mut self, len: u32) -> SurrealismResult<u32> {
-		let result = self.alloc_fn.call_async(&mut self.store, (len,)).await?;
-		if result == -1 {
-			return Err(SurrealismError::AllocFailed);
+		let args_values = args.to_values();
+		let args_bytes = surrealdb_types::encode_value_list(&args_values)?;
+
+		let typed = self
+			.invoke_fn
+			.typed::<(Option<&str>, &[u8]), (Result<Vec<u8>, String>,)>(&self.store)?;
+
+		let call_result = typed.call_async(&mut self.store, (name.as_deref(), &args_bytes)).await;
+
+		if let Err(e) = &call_result {
+			tracing::error!(name = %display_name, error = %e, "invoke_with_timeout: call_async FAILED");
 		}
-		Ok(result as u32)
-	}
 
-	async fn free(&mut self, ptr: u32, len: u32) -> SurrealismResult<()> {
-		let result = self.free_fn.call_async(&mut self.store, (ptr, len)).await?;
-		if result == -1 {
-			return Err(SurrealismError::FreeFailed);
-		}
-		Ok(())
-	}
-
-	fn mut_mem(&mut self, ptr: u32, len: u32) -> SurrealismResult<&mut [u8]> {
-		let mem = self.memory.data_mut(&mut self.store);
-		let start = ptr as usize;
-		let end = start.checked_add(len as usize).ok_or_else(|| {
-			SurrealismError::OutOfBounds(format!("Memory access overflow: ptr={ptr}, len={len}"))
+		let (result,) = call_result.map_err(|e| {
+			if e.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
+				SurrealismError::Timeout {
+					effective,
+					context_timeout,
+					module_limit: self.module_execution_time,
+				}
+			} else {
+				SurrealismError::from(e)
+			}
 		})?;
-		if end > mem.len() {
-			return Err(SurrealismError::OutOfBounds(format!(
-				"Memory access out of bounds: attempting to access [{start}..{end}), but memory size is {}",
-				mem.len()
-			)));
+
+		if let Err(guest_err) = &result {
+			tracing::warn!(name = %display_name, guest_error = %guest_err, "invoke_with_timeout: guest returned Err");
 		}
-		Ok(&mut mem[start..end])
-	}
-}
-
-// ---------------------------------------------------------------------------
-// P2 Controller (component model path — no manual alloc/free)
-// ---------------------------------------------------------------------------
-
-pub(crate) struct P2Controller {
-	store: Store<P2StoreData>,
-	instance: component::Instance,
-}
-
-impl P2Controller {
-	async fn init(&mut self) -> SurrealismResult<()> {
-		let func = self.instance.get_func(&mut self.store, "init");
-		let Some(func) = func else {
-			return Ok(());
-		};
-		let typed = func.typed::<(), (Result<(), String>,)>(&self.store)?;
-		let (result,) = typed.call_async(&mut self.store, ()).await?;
-		result.map_err(SurrealismError::FunctionCallError)
-	}
-
-	async fn invoke<A: Args>(
-		&mut self,
-		name: Option<String>,
-		args: A,
-	) -> SurrealismResult<surrealdb_types::Value> {
-		let args_bytes = surrealdb_types::encode_value_list(&args.to_values())?;
-
-		let func = self
-			.instance
-			.get_func(&mut self.store, "invoke")
-			.context("component must export 'invoke'")?;
-		let typed = func.typed::<(&str, &[u8]), (Result<Vec<u8>, String>,)>(&self.store)?;
-
-		let call_name = name.unwrap_or_default();
-		let (result,) = typed.call_async(&mut self.store, (&call_name, &args_bytes)).await?;
 
 		let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
 		let value = surrealdb_types::decode::<surrealdb_types::Value>(&result_bytes)?;
 		Ok(value)
 	}
 
-	async fn args(&mut self, name: Option<String>) -> SurrealismResult<Vec<surrealdb_types::Kind>> {
-		let func = self
-			.instance
-			.get_func(&mut self.store, "function-args")
-			.context("component must export 'function-args'")?;
-		let typed = func.typed::<(&str,), (Result<Vec<u8>, String>,)>(&self.store)?;
-
-		let call_name = name.unwrap_or_default();
-		let (result,) = typed.call_async(&mut self.store, (&call_name,)).await?;
-
-		let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
-		Ok(surrealdb_types::decode_kind_list(&result_bytes)?)
+	/// Convert a `Trap::Interrupt` into a `SurrealismError::Timeout`, otherwise
+	/// wrap as a generic wasmtime error. Used by metadata helpers that only have
+	/// the module-level timeout (no per-invocation context timeout).
+	fn trap_to_timeout(&self, e: wasmtime::Error) -> SurrealismError {
+		if e.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
+			SurrealismError::Timeout {
+				effective: self.module_execution_time,
+				context_timeout: None,
+				module_limit: self.module_execution_time,
+			}
+		} else {
+			SurrealismError::from(e)
+		}
 	}
 
-	async fn returns(&mut self, name: Option<String>) -> SurrealismResult<surrealdb_types::Kind> {
-		let func = self
-			.instance
-			.get_func(&mut self.store, "function-returns")
-			.context("component must export 'function-returns'")?;
-		let typed = func.typed::<(&str,), (Result<Vec<u8>, String>,)>(&self.store)?;
+	/// Query argument types for a function via the WASM export.
+	/// Only available when the module has the `function-args` export (build tool).
+	#[tracing::instrument(skip_all, fields(name))]
+	pub async fn args(
+		&mut self,
+		name: Option<String>,
+	) -> SurrealismResult<Vec<surrealdb_types::Kind>> {
+		let display_name = name.as_deref().unwrap_or("<default>");
+		tracing::debug!(name = %display_name, "controller.args(): calling function-args");
+		let func = self.args_fn.ok_or_else(|| {
+			SurrealismError::Other(anyhow::anyhow!("function-args export not available"))
+		})?;
+		self.apply_module_deadline();
+		let typed = func.typed::<(Option<&str>,), (Result<Vec<u8>, String>,)>(&self.store)?;
 
-		let call_name = name.unwrap_or_default();
-		let (result,) = typed.call_async(&mut self.store, (&call_name,)).await?;
-
-		let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
-		Ok(surrealdb_types::decode_kind(&result_bytes)?)
+		match typed.call_async(&mut self.store, (name.as_deref(),)).await {
+			Ok((result,)) => {
+				tracing::debug!(name = %display_name, ok = result.is_ok(), "controller.args(): call_async completed");
+				let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
+				Ok(surrealdb_types::decode_kind_list(&result_bytes)?)
+			}
+			Err(e) => {
+				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.args(): WASM TRAP");
+				Err(self.trap_to_timeout(e))
+			}
+		}
 	}
 
-	async fn list(&mut self) -> SurrealismResult<Vec<String>> {
-		let func = self
-			.instance
-			.get_func(&mut self.store, "list-functions")
-			.context("component must export 'list-functions'")?;
-		let typed = func.typed::<(), (Vec<String>,)>(&self.store)?;
+	/// Query return type for a function via the WASM export.
+	/// Only available when the module has the `function-returns` export (build tool).
+	#[tracing::instrument(skip_all, fields(name))]
+	pub async fn returns(
+		&mut self,
+		name: Option<String>,
+	) -> SurrealismResult<surrealdb_types::Kind> {
+		let display_name = name.as_deref().unwrap_or("<default>");
+		tracing::debug!(name = %display_name, "controller.returns(): calling function-returns");
+		let func = self.returns_fn.ok_or_else(|| {
+			SurrealismError::Other(anyhow::anyhow!("function-returns export not available"))
+		})?;
+		self.apply_module_deadline();
+		let typed = func.typed::<(Option<&str>,), (Result<Vec<u8>, String>,)>(&self.store)?;
 
-		let (names,) = typed.call_async(&mut self.store, ()).await?;
-		Ok(names)
+		match typed.call_async(&mut self.store, (name.as_deref(),)).await {
+			Ok((result,)) => {
+				tracing::debug!(name = %display_name, ok = result.is_ok(), "controller.returns(): call_async completed");
+				let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
+				Ok(surrealdb_types::decode_kind(&result_bytes)?)
+			}
+			Err(e) => {
+				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.returns(): WASM TRAP");
+				Err(self.trap_to_timeout(e))
+			}
+		}
+	}
+
+	/// List all exported function names via the WASM export.
+	/// Only available when the module has the `list-functions` export (build tool).
+	#[tracing::instrument(skip_all)]
+	pub async fn list(&mut self) -> SurrealismResult<Vec<Option<String>>> {
+		tracing::debug!("controller.list(): calling list-functions");
+		let func = self.list_fn.ok_or_else(|| {
+			SurrealismError::Other(anyhow::anyhow!("list-functions export not available"))
+		})?;
+		self.apply_module_deadline();
+		let typed = func.typed::<(), (Vec<Option<String>>,)>(&self.store)?;
+
+		match typed.call_async(&mut self.store, ()).await {
+			Ok((names,)) => {
+				tracing::debug!(count = names.len(), names = ?names, "controller.list(): completed");
+				Ok(names)
+			}
+			Err(e) => {
+				tracing::error!(error = %e, error_debug = ?e, "controller.list(): WASM TRAP");
+				Err(self.trap_to_timeout(e))
+			}
+		}
 	}
 }

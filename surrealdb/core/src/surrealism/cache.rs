@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::{Error, Result};
 use quick_cache::{Equivalent, Weighter};
-use surrealism_runtime::controller::Runtime;
+use surrealism_runtime::runtime::Runtime;
 
 use crate::catalog::{DatabaseId, NamespaceId};
 
@@ -14,10 +14,14 @@ pub struct SurrealismCache {
 
 impl SurrealismCache {
 	pub fn new() -> Self {
+		let count = *crate::cnf::SURREALISM_CACHE_SIZE;
 		Self {
 			cache: quick_cache::sync::Cache::with_weighter(
-				*crate::cnf::SURREALISM_CACHE_SIZE,
-				*crate::cnf::SURREALISM_CACHE_SIZE as u64,
+				count,
+				// Weight is in MB. Budget = count * 100 MB each, so the default
+				// of 100 modules gives a ~10 GB budget — effectively count-limited
+				// for typical module sizes while still evicting large modules first.
+				(count as u64) * 100,
 				Weight,
 			),
 		}
@@ -115,8 +119,7 @@ pub(crate) struct Weight;
 
 impl Weighter<SurrealismCacheKey, SurrealismCacheValue> for Weight {
 	fn weight(&self, _key: &SurrealismCacheKey, val: &SurrealismCacheValue) -> u64 {
-		// Weight by WASM binary size in KB (minimum 1) so the cache
-		// preferentially evicts large modules when under pressure.
-		(val.runtime.wasm_size() as u64 / 1024).max(1)
+		// Weight in MB so larger modules are evicted first under pressure.
+		(val.runtime.wasm_size() as u64 / (1024 * 1024)).max(1)
 	}
 }

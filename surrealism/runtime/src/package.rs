@@ -1,3 +1,6 @@
+//! `.surli` archive format: tar + zstd containing `mod.wasm`, config, exports,
+//! and optional `surrealism/fs/` filesystem. Only WASM components are accepted.
+
 use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -7,27 +10,22 @@ use tar::Archive;
 use tempfile::TempDir;
 use zstd::stream::read::Decoder;
 
-use crate::config::{AbiVersion, SurrealismConfig};
-
-/// Whether the WASM bytes represent a core module (P1) or a component (P2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ModuleKind {
-	/// Core WASM module (WASI P1).
-	CoreModule,
-	/// WASM component (WASI P2 / Component Model).
-	Component,
-}
+use crate::config::SurrealismConfig;
+use crate::exports::ExportsManifest;
 
 /// The 8-byte preamble of a WASM component (layer 1, version 0x0d).
 const COMPONENT_PREAMBLE: [u8; 8] = [0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00];
 
-/// Detect whether raw WASM bytes represent a component or a core module.
-pub fn detect_module_kind(wasm: &[u8]) -> ModuleKind {
-	if wasm.len() >= 8 && wasm[..8] == COMPONENT_PREAMBLE {
-		ModuleKind::Component
-	} else {
-		ModuleKind::CoreModule
+/// Verify that the WASM bytes represent a component (not a core module).
+fn verify_component(wasm: &[u8]) -> SurrealismResult<()> {
+	if wasm.len() < 8 || wasm[..8] != COMPONENT_PREAMBLE {
+		return Err(SurrealismError::Other(anyhow::anyhow!(
+			"expected a WASM component but found a core module. \
+			 Core modules (WASI Preview 1) are no longer supported — \
+			 compile with `--target wasm32-wasip2` to produce a component"
+		)));
 	}
+	Ok(())
 }
 
 /// The tar path prefix used for filesystem attachments inside the archive.
@@ -36,7 +34,8 @@ const FS_PREFIX: &str = "surrealism/fs/";
 pub struct SurrealismPackage {
 	pub config: SurrealismConfig,
 	pub wasm: Vec<u8>,
-	pub kind: ModuleKind,
+	/// Exported function signatures parsed from `surrealism/exports.toml`.
+	pub exports: ExportsManifest,
 	/// Extracted filesystem directory from the archive. Present when the
 	/// archive contained `surrealism/fs/` entries. The `TempDir` handle keeps
 	/// the directory alive and cleans it up on drop.
@@ -66,10 +65,17 @@ impl Default for UnpackOptions<'_> {
 fn create_temp_dir(opts: &UnpackOptions<'_>) -> SurrealismResult<TempDir> {
 	let mut builder = tempfile::Builder::new();
 	builder.prefix(opts.temp_prefix);
-	if let Some(base) = opts.temp_base
-		&& let Ok(dir) = builder.tempdir_in(base)
-	{
-		return Ok(dir);
+	if let Some(base) = opts.temp_base {
+		match builder.tempdir_in(base) {
+			Ok(dir) => return Ok(dir),
+			Err(e) => {
+				tracing::warn!(
+					base = %base.display(),
+					error = %e,
+					"Configured temporary directory unusable, falling back to system temp"
+				);
+			}
+		}
 	}
 	builder.tempdir().prefix_err(|| {
 		"Failed to create temporary directory for module filesystem. \
@@ -101,6 +107,7 @@ impl SurrealismPackage {
 
 		let mut wasm: Option<Vec<u8>> = None;
 		let mut config: Option<SurrealismConfig> = None;
+		let mut exports: Option<ExportsManifest> = None;
 		let mut fs_dir: Option<TempDir> = None;
 
 		for entry in archive.entries().prefix_err(|| "Failed to read archive entries")? {
@@ -122,6 +129,15 @@ impl SurrealismPackage {
 				config = Some(
 					SurrealismConfig::parse(&buffer)
 						.prefix_err(|| "Failed to parse surrealism.toml")?,
+				);
+			} else if entry_str == "surrealism/exports.toml" {
+				let mut buffer = String::new();
+				entry
+					.read_to_string(&mut buffer)
+					.prefix_err(|| "Failed to read exports file from archive")?;
+				exports = Some(
+					ExportsManifest::parse(&buffer)
+						.prefix_err(|| "Failed to parse exports.toml")?,
 				);
 			} else if let Some(rel) = entry_str.strip_prefix(FS_PREFIX) {
 				if rel.is_empty() || rel.ends_with('/') {
@@ -161,23 +177,15 @@ impl SurrealismPackage {
 		let wasm = wasm.ok_or_else(|| anyhow::anyhow!("mod.wasm not found in archive"))?;
 		let config =
 			config.ok_or_else(|| anyhow::anyhow!("surrealism.toml not found in archive"))?;
+		let exports =
+			exports.ok_or_else(|| anyhow::anyhow!("exports.toml not found in archive"))?;
 
-		let detected = detect_module_kind(&wasm);
-		let kind = match config.abi {
-			AbiVersion::P1 => ModuleKind::CoreModule,
-			AbiVersion::P2 => {
-				if detected == ModuleKind::CoreModule {
-					ModuleKind::CoreModule
-				} else {
-					ModuleKind::Component
-				}
-			}
-		};
+		verify_component(&wasm)?;
 
 		Ok(SurrealismPackage {
 			config,
 			wasm,
-			kind,
+			exports,
 			fs: fs_dir,
 		})
 	}
@@ -189,6 +197,22 @@ impl SurrealismPackage {
 			)));
 		}
 
+		match (&self.config.attach.fs, &fs_dir) {
+			(Some(cfg_fs), None) => {
+				tracing::warn!(
+					attach_fs = %cfg_fs,
+					"config.attach.fs is set but no fs_dir was provided to pack()"
+				);
+			}
+			(None, Some(dir)) => {
+				tracing::warn!(
+					fs_dir = %dir.display(),
+					"fs_dir provided to pack() but config.attach.fs is not set"
+				);
+			}
+			_ => {}
+		}
+
 		let file = File::create(&output).prefix_err(|| "Failed to create output file")?;
 		let encoder =
 			zstd::stream::Encoder::new(file, 0).prefix_err(|| "Failed to create zstd encoder")?;
@@ -197,18 +221,31 @@ impl SurrealismPackage {
 		let mut wasm_reader = std::io::Cursor::new(&self.wasm);
 		let mut wasm_header = tar::Header::new_gnu();
 		wasm_header.set_size(self.wasm.len() as u64);
+		wasm_header.set_mode(0o644);
 		archive
 			.append_data(&mut wasm_header, "surrealism/mod.wasm", &mut wasm_reader)
 			.prefix_err(|| "Failed to add mod.wasm to archive")?;
 
-		let config_str = self.config.to_string().prefix_err(|| "Failed to serialize config")?;
+		let config_str = self.config.to_toml().prefix_err(|| "Failed to serialize config")?;
 		let config_bytes = config_str.as_bytes();
 		let mut config_reader = std::io::Cursor::new(config_bytes);
 		let mut config_header = tar::Header::new_gnu();
 		config_header.set_size(config_bytes.len() as u64);
+		config_header.set_mode(0o644);
 		archive
 			.append_data(&mut config_header, "surrealism/surrealism.toml", &mut config_reader)
 			.prefix_err(|| "Failed to add surrealism.toml to archive")?;
+
+		let exports_str =
+			self.exports.to_toml().prefix_err(|| "Failed to serialize exports manifest")?;
+		let exports_bytes = exports_str.as_bytes();
+		let mut exports_reader = std::io::Cursor::new(exports_bytes);
+		let mut exports_header = tar::Header::new_gnu();
+		exports_header.set_size(exports_bytes.len() as u64);
+		exports_header.set_mode(0o644);
+		archive
+			.append_data(&mut exports_header, "surrealism/exports.toml", &mut exports_reader)
+			.prefix_err(|| "Failed to add exports.toml to archive")?;
 
 		if let Some(dir) = fs_dir {
 			archive

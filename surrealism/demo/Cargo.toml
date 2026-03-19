@@ -14,10 +14,6 @@ license-file.workspace = true
 [lib]
 crate-type = ["cdylib"]
 
-[features]
-default = []
-p2 = ["surrealism/p2"]
-
 [dependencies]
 anyhow.workspace = true
 serde_json.workspace = true

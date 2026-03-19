@@ -53,7 +53,6 @@ surrealism = { version = "0.1", path = "surrealism" }
 surrealism-macros = { version = "0.1", path = "surrealism/macros", default-features = false }
 surrealism-runtime = { version = "0.1", path = "surrealism/runtime" }
 surrealism-types = { version = "0.1", path = "surrealism/types", default-features = false }
-
 # External surreal crates
 affinitypool = "0.4.0"
 dmp = "0.2.3"
@@ -107,6 +106,7 @@ chrono = "0.4.43"
 ciborium = "0.2.2"
 clap = "4.5.54"
 dashmap = "6.1.0"
+dialoguer = "0.11"
 deunicode = "1.6.2"
 ext-sort = "^0.1.5"
 fastnum = "0.7.4"
@@ -203,7 +203,9 @@ walrus = "0.25"
 wasm-encoder = "0.245"
 wasm-opt = "0.116.1"
 wasmparser = "0.245"
-wasmtime = { version = "42", default-features = false, features = ["cranelift", "winch", "runtime", "std", "wat", "component-model"] }
+wit-component = "0.245"
+wit-parser = "0.245"
+wasmtime = { version = "42", default-features = false, features = ["async", "cranelift", "winch", "runtime", "std", "wat", "component-model", "parallel-compilation"] }
 wasmtime-wasi = { version = "42", features = ["p1", "p2"] }
 wit-bindgen = { version = "0.51", default-features = false, features = ["macros", "realloc"] }
 zstd = "0.13.3"

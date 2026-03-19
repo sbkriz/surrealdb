@@ -17,8 +17,6 @@ use crate::expr::{Kind, Value};
 use crate::surrealism::cache::SurrealismCacheLookup;
 #[cfg(feature = "surrealism")]
 use crate::surrealism::host::Host;
-#[cfg(feature = "surrealism")]
-use crate::surrealism::host::SignatureHost;
 use crate::val::File;
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -133,7 +131,7 @@ impl SurrealismExecutable {
 		check_surrealism_enabled(ctx)?;
 		let lookup = SurrealismCacheLookup::File(ns, db, &self.0.bucket, &self.0.key);
 		let runtime = ctx.get_surrealism_runtime(lookup).await?;
-		signature_from_runtime(runtime, sub).await
+		signature_from_runtime(&runtime, sub)
 	}
 
 	pub(crate) async fn run(
@@ -234,7 +232,7 @@ impl SiloExecutable {
 			self.patch,
 		);
 		let runtime = ctx.get_surrealism_runtime(lookup).await?;
-		signature_from_runtime(runtime, sub).await
+		signature_from_runtime(&runtime, sub)
 	}
 
 	pub(crate) async fn run(
@@ -291,38 +289,52 @@ fn check_surrealism_enabled(ctx: &FrozenContext) -> Result<()> {
 }
 
 #[cfg(feature = "surrealism")]
-async fn signature_from_runtime(
-	runtime: Arc<surrealism_runtime::controller::Runtime>,
+fn signature_from_runtime(
+	runtime: &surrealism_runtime::runtime::Runtime,
 	sub: Option<&str>,
 ) -> Result<Signature> {
-	let host = Box::new(SignatureHost::new());
-	let mut controller = runtime.new_controller(host).await?;
-
-	let args =
-		controller.args(sub.map(String::from)).await?.into_iter().map(|x| x.into()).collect();
-
-	let returns = controller.returns(sub.map(String::from)).await.map(|x| Some(x.into()))?;
-
+	let export = runtime.get_signature(sub)?;
 	Ok(Signature {
-		args,
-		returns,
+		args: export.args.iter().cloned().map(|x| x.into()).collect(),
+		returns: Some(export.returns.clone().into()),
 	})
 }
 
 #[cfg(feature = "surrealism")]
 async fn run_on_runtime(
-	runtime: Arc<surrealism_runtime::controller::Runtime>,
+	runtime: Arc<surrealism_runtime::runtime::Runtime>,
 	ctx: &FrozenContext,
 	opt: &Options,
 	doc: Option<&CursorDoc>,
 	args: Vec<Value>,
 	sub: Option<&str>,
 ) -> Result<Value> {
-	let host = Box::new(Host::new(ctx, opt, doc));
-	let mut controller = runtime.new_controller(host).await?;
+	let display_name = sub.unwrap_or("<default>");
+	tracing::debug!(name = %display_name, arg_count = args.len(), "run_on_runtime: starting");
 
 	let args: Result<Vec<crate::types::PublicValue>, _> =
 		args.into_iter().map(|x| x.try_into()).collect();
 	let args = args?;
-	Ok(controller.invoke(sub.map(String::from), args).await.map(|x| x.into())?)
+
+	let module_name =
+		format!("{}::{}", runtime.config().meta.organisation, runtime.config().meta.name,);
+	let host = Box::new(Host::new(ctx, opt, doc, runtime.kv_store().clone(), module_name));
+	let mut controller = runtime.acquire_controller(host).await?;
+
+	let ctx_timeout = ctx.timeout();
+	let result = controller.invoke_with_timeout(sub.map(String::from), args, ctx_timeout).await;
+
+	let is_trap = matches!(&result, Err(e) if !matches!(e, surrealism_runtime::SurrealismError::FunctionCallError(_)));
+	if is_trap {
+		tracing::error!(
+			name = %display_name,
+			error = ?result.as_ref().err(),
+			"run_on_runtime: WASM TRAP, dropping controller"
+		);
+		drop(controller);
+	} else {
+		runtime.release_controller(controller);
+	}
+
+	Ok(result?.into())
 }

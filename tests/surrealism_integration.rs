@@ -13,7 +13,7 @@ mod surrealism_integration {
 	use surrealism_runtime::config::{
 		AbiVersion, SurrealismAttach, SurrealismConfig, SurrealismMeta,
 	};
-	use surrealism_runtime::package::{SurrealismPackage, detect_module_kind};
+	use surrealism_runtime::package::SurrealismPackage;
 	use test_log::test;
 	use ulid::Ulid;
 
@@ -33,69 +33,43 @@ mod surrealism_integration {
 			.unwrap_or(false)
 	}
 
-	fn build_and_pack_demo(output_dir: &Path, abi: AbiVersion) {
-		let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
-		let (target, features) = match abi {
-			AbiVersion::P1 => ("wasm32-wasip1", None),
-			AbiVersion::P2 => ("wasm32-wasip2", Some("demo/p2")),
-		};
-
-		let mut cmd = Command::new("cargo");
-		cmd.args(["build", "-p", "demo", "--target", target]);
-		if let Some(feat) = features {
-			cmd.args(["--features", feat]);
+	/// Path to the `surreal` binary built by cargo for integration tests.
+	fn surreal_bin() -> PathBuf {
+		let mut path = std::env::current_exe().expect("Failed to get current exe path");
+		assert!(path.pop());
+		if path.ends_with("deps") {
+			assert!(path.pop());
 		}
+		path.push(format!("{}{}", env!("CARGO_PKG_NAME"), std::env::consts::EXE_SUFFIX));
+		path
+	}
 
-		let result =
-			cmd.current_dir(workspace_root).output().expect("Failed to execute cargo build");
+	/// Build and pack the demo module using `surreal module build`.
+	fn build_and_pack_demo(output_dir: &Path) {
+		let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let demo_dir = workspace_root.join("surrealism/demo");
+		let output = output_dir.join("demo.surli");
+
+		let result = Command::new(surreal_bin())
+			.args([
+				"module",
+				"build",
+				"--debug",
+				"-o",
+				&output.to_string_lossy(),
+				&demo_dir.to_string_lossy(),
+			])
+			.current_dir(workspace_root)
+			.output()
+			.expect("Failed to execute surreal module build");
 
 		assert!(
 			result.status.success(),
-			"cargo build -p demo (abi {abi:?}) failed.\nstdout: {}\nstderr: {}",
+			"surreal module build failed.\nstdout: {}\nstderr: {}",
 			String::from_utf8_lossy(&result.stdout),
 			String::from_utf8_lossy(&result.stderr),
 		);
 
-		let wasm_path = workspace_root.join(format!("target/{target}/debug/demo.wasm"));
-		assert!(wasm_path.exists(), "demo.wasm not found at {}", wasm_path.display());
-
-		let wasm = std::fs::read(&wasm_path).expect("Failed to read demo.wasm");
-		let kind = detect_module_kind(&wasm);
-
-		let fs_dir = workspace_root.join("surrealism/demo/fs");
-		let has_fs = fs_dir.is_dir();
-
-		let config = SurrealismConfig {
-			meta: SurrealismMeta {
-				organisation: "surrealdb".to_string(),
-				name: "demo".to_string(),
-				version: semver::Version::new(1, 0, 0),
-			},
-			capabilities: Default::default(),
-			abi,
-			attach: SurrealismAttach {
-				fs: if has_fs {
-					Some("fs".to_string())
-				} else {
-					None
-				},
-			},
-		};
-
-		let package = SurrealismPackage {
-			config,
-			wasm,
-			kind,
-			fs: None,
-		};
-
-		let output = output_dir.join("demo.surli");
-		let fs_pack_dir = if has_fs {
-			Some(fs_dir.as_path())
-		} else {
-			None
-		};
-		package.pack(output.clone(), fs_pack_dir).expect("Failed to pack demo.surli");
 		assert!(output.exists(), "demo.surli not created at {}", output.display());
 	}
 
@@ -107,27 +81,22 @@ mod surrealism_integration {
 		canonical: PathBuf,
 	}
 
-	fn build_demo_dir(abi: AbiVersion) -> DemoModuleDir {
-		let target = match abi {
-			AbiVersion::P1 => "wasm32-wasip1",
-			AbiVersion::P2 => "wasm32-wasip2",
-		};
+	fn build_demo_dir() -> DemoModuleDir {
+		let target = "wasm32-wasip2";
 		if !has_wasm_target(target) {
 			panic!("{target} target not installed — install with: rustup target add {target}");
 		}
 		let tmp = tempfile::TempDir::new().expect("Failed to create temp dir for demo module");
 		let canonical =
 			std::fs::canonicalize(tmp.path()).expect("Failed to canonicalize temp dir path");
-		build_and_pack_demo(&canonical, abi);
+		build_and_pack_demo(&canonical);
 		DemoModuleDir {
 			_tmp: tmp,
 			canonical,
 		}
 	}
 
-	static DEMO_DIR_P1: LazyLock<DemoModuleDir> = LazyLock::new(|| build_demo_dir(AbiVersion::P1));
-
-	static DEMO_DIR_P2: LazyLock<DemoModuleDir> = LazyLock::new(|| build_demo_dir(AbiVersion::P2));
+	static DEMO_DIR: LazyLock<DemoModuleDir> = LazyLock::new(build_demo_dir);
 
 	/// Start a SurrealDB server with the `files` and `surrealism` experimental
 	/// capabilities enabled, and a bucket folder allowlist pointing at the given
@@ -189,10 +158,6 @@ mod surrealism_integration {
 			assert_eq!(r.status, "OK", "Setup statement {i} failed: {:?}", r.result);
 		}
 	}
-
-	// -------------------------------------------------------------------
-	// Test helpers (shared across P1 and P2)
-	// -------------------------------------------------------------------
 
 	async fn check_function_calls(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
 		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
@@ -264,32 +229,14 @@ mod surrealism_integration {
 		Ok(())
 	}
 
-	// -------------------------------------------------------------------
-	// P1 tests
-	// -------------------------------------------------------------------
-
 	#[test(tokio::test)]
-	async fn module_function_calls_p1() -> Result<(), Box<dyn std::error::Error>> {
-		check_function_calls(&DEMO_DIR_P1.canonical).await
+	async fn module_function_calls() -> Result<(), Box<dyn std::error::Error>> {
+		check_function_calls(&DEMO_DIR.canonical).await
 	}
 
 	#[test(tokio::test)]
-	async fn module_result_type_handling_p1() -> Result<(), Box<dyn std::error::Error>> {
-		check_result_type_handling(&DEMO_DIR_P1.canonical).await
-	}
-
-	// -------------------------------------------------------------------
-	// P2 tests
-	// -------------------------------------------------------------------
-
-	#[test(tokio::test)]
-	async fn module_function_calls_p2() -> Result<(), Box<dyn std::error::Error>> {
-		check_function_calls(&DEMO_DIR_P2.canonical).await
-	}
-
-	#[test(tokio::test)]
-	async fn module_result_type_handling_p2() -> Result<(), Box<dyn std::error::Error>> {
-		check_result_type_handling(&DEMO_DIR_P2.canonical).await
+	async fn module_result_type_handling() -> Result<(), Box<dyn std::error::Error>> {
+		check_result_type_handling(&DEMO_DIR.canonical).await
 	}
 
 	// -------------------------------------------------------------------
@@ -330,13 +277,558 @@ mod surrealism_integration {
 	}
 
 	#[test(tokio::test)]
-	async fn module_fs_read_p1() -> Result<(), Box<dyn std::error::Error>> {
-		check_fs_read(&DEMO_DIR_P1.canonical).await
+	async fn module_fs_read() -> Result<(), Box<dyn std::error::Error>> {
+		check_fs_read(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Persistent state tests
+	// -------------------------------------------------------------------
+
+	async fn check_persistent_state(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// First call: init() populates the OnceLock, cached_greeting() reads it
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::cached_greeting();").await;
+		assert_eq!(results[0].status, "OK", "cached_greeting (1st): {:?}", results[0].result);
+		let first_value = results[0].result.clone();
+		assert!(first_value.is_string(), "cached_greeting should return a string");
+
+		// Second call: persistent state survives, returns the same value
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::cached_greeting();").await;
+		assert_eq!(results[0].status, "OK", "cached_greeting (2nd): {:?}", results[0].result);
+		assert_eq!(
+			results[0].result, first_value,
+			"persistent state should survive across invocations"
+		);
+
+		// Third call: one more round to be sure
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::cached_greeting();").await;
+		assert_eq!(results[0].status, "OK", "cached_greeting (3rd): {:?}", results[0].result);
+		assert_eq!(
+			results[0].result, first_value,
+			"persistent state should be consistent across multiple invocations"
+		);
+
+		Ok(())
 	}
 
 	#[test(tokio::test)]
-	async fn module_fs_read_p2() -> Result<(), Box<dyn std::error::Error>> {
-		check_fs_read(&DEMO_DIR_P2.canonical).await
+	async fn module_persistent_state() -> Result<(), Box<dyn std::error::Error>> {
+		check_persistent_state(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// KV store tests
+	// -------------------------------------------------------------------
+
+	async fn check_kv_operations(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::test_kv();").await;
+		assert_eq!(results[0].status, "OK", "test_kv failed: {:?}", results[0].result);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_kv_operations() -> Result<(), Box<dyn std::error::Error>> {
+		check_kv_operations(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// I/O tests (stdout / stderr piping)
+	// -------------------------------------------------------------------
+
+	async fn check_io(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::test_io();").await;
+		assert_eq!(results[0].status, "OK", "test_io failed: {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!("I/O test completed"));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_io() -> Result<(), Box<dyn std::error::Error>> {
+		check_io(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// None value handling
+	// -------------------------------------------------------------------
+
+	async fn check_none_value(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::test_none_value();").await;
+		assert_eq!(results[0].status, "OK", "test_none_value failed: {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!([null]));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_none_value() -> Result<(), Box<dyn std::error::Error>> {
+		check_none_value(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// run() cross-function calls + custom struct arguments
+	// -------------------------------------------------------------------
+
+	async fn check_run_function(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// Define the SurrealQL function that create_user calls via surrealism::run
+		let define_fn =
+			"DEFINE FUNCTION fn::user_exists($name: string, $age: int) { RETURN false; };";
+		let results = sql_query(&addr, &ns, &db, define_fn).await;
+		assert_eq!(results[0].status, "OK", "DEFINE FUNCTION failed: {:?}", results[0].result);
+
+		let results = sql_query(
+			&addr,
+			&ns,
+			&db,
+			"RETURN mod::demo::create_user({ name: 'Alice', age: 30, enabled: true });",
+		)
+		.await;
+		assert_eq!(results[0].status, "OK", "create_user failed: {:?}", results[0].result);
+		let result_str = results[0].result.as_str().expect("create_user should return a string");
+		assert!(
+			result_str.contains("Created user Alice"),
+			"Expected 'Created user Alice', got: {result_str}"
+		);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_run_function() -> Result<(), Box<dyn std::error::Error>> {
+		check_run_function(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Module namespace tests (#[surrealism] on mod blocks)
+	// -------------------------------------------------------------------
+
+	async fn check_mod_default_export(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// math default export: double(5) -> 10
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math(5);").await;
+		assert_eq!(results[0].status, "OK", "math default(5): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(10));
+
+		// math default export: double(0) -> 0
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math(0);").await;
+		assert_eq!(results[0].status, "OK", "math default(0): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(0));
+
+		// util default export (name override): identity(42) -> 42
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util(42);").await;
+		assert_eq!(results[0].status, "OK", "util default(42): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(42));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_default_export() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_default_export(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_named_exports(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// math::add(3, 4) -> 7
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(3, 4);").await;
+		assert_eq!(results[0].status, "OK", "math::add(3,4): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(7));
+
+		// math::add(0, 0) -> 0
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(0, 0);").await;
+		assert_eq!(results[0].status, "OK", "math::add(0,0): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(0));
+
+		// math::add with negative numbers
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(-10, 3);").await;
+		assert_eq!(results[0].status, "OK", "math::add(-10,3): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(-7));
+
+		// math::multiply(3, 4) -> 12 (name override inside mod)
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::multiply(3, 4);").await;
+		assert_eq!(results[0].status, "OK", "math::multiply(3,4): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(12));
+
+		// math::multiply(0, 999) -> 0
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::multiply(0, 999);").await;
+		assert_eq!(results[0].status, "OK", "math::multiply(0,999): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(0));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_named_exports() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_named_exports(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_name_override(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// util::negate(5) -> -5 (mod with name override + fn with name override)
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util::negate(5);").await;
+		assert_eq!(results[0].status, "OK", "util::negate(5): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(-5));
+
+		// util::negate(0) -> 0
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util::negate(0);").await;
+		assert_eq!(results[0].status, "OK", "util::negate(0): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(0));
+
+		// util::negate(-42) -> 42
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util::negate(-42);").await;
+		assert_eq!(results[0].status, "OK", "util::negate(-42): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(42));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_name_override() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_name_override(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_nested(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// util::nested::deep(1) -> 101 (nested mod support, multi-segment sub name)
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util::nested::deep(1);").await;
+		assert_eq!(results[0].status, "OK", "util::nested::deep(1): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(101));
+
+		// util::nested::deep(0) -> 100
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::util::nested::deep(0);").await;
+		assert_eq!(results[0].status, "OK", "util::nested::deep(0): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(100));
+
+		// util::nested::deep(-50) -> 50
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::util::nested::deep(-50);").await;
+		assert_eq!(results[0].status, "OK", "util::nested::deep(-50): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(50));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_nested() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_nested(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_nonexistent_function(
+		bucket_dir: &Path,
+	) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// Calling a non-existent function inside a mod namespace should fail
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::nonexistent(1);").await;
+		assert_eq!(
+			results[0].status, "ERR",
+			"Expected error for nonexistent mod function, got: {:?}",
+			results[0].result
+		);
+
+		// Calling a non-existent nested path should fail
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::util::nested::nonexistent(1);").await;
+		assert_eq!(
+			results[0].status, "ERR",
+			"Expected error for nonexistent nested mod function, got: {:?}",
+			results[0].result
+		);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_nonexistent_function() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_nonexistent_function(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_wrong_arg_count(
+		bucket_dir: &Path,
+	) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// math::add expects 2 args, passing 1 should fail
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(1);").await;
+		assert_eq!(
+			results[0].status, "ERR",
+			"Expected error for wrong arg count, got: {:?}",
+			results[0].result
+		);
+
+		// math::add expects 2 args, passing 3 should fail
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(1, 2, 3);").await;
+		assert_eq!(
+			results[0].status, "ERR",
+			"Expected error for wrong arg count, got: {:?}",
+			results[0].result
+		);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_wrong_arg_count() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_wrong_arg_count(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_mixed_with_top_level(
+		bucket_dir: &Path,
+	) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// Top-level functions still work alongside mod-namespaced functions
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::can_drive(21);").await;
+		assert_eq!(results[0].status, "OK", "can_drive(21): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::Value::Bool(true));
+
+		// Top-level default still works
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo(18);").await;
+		assert_eq!(results[0].status, "OK", "default(18): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::Value::Bool(true));
+
+		// Mod-namespaced functions work in the same module
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::math::add(10, 20);").await;
+		assert_eq!(results[0].status, "OK", "math::add(10,20): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(30));
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_mixed_with_top_level() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_mixed_with_top_level(&DEMO_DIR.canonical).await
+	}
+
+	async fn check_mod_concurrent(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let mut handles = Vec::new();
+		for i in 0..10 {
+			let addr = addr.clone();
+			let ns = ns.clone();
+			let db = db.clone();
+			handles.push(tokio::spawn(async move {
+				let query = format!("RETURN mod::demo::math::add({i}, {});", i * 10);
+				let results = sql_query(&addr, &ns, &db, &query).await;
+				assert_eq!(
+					results[0].status,
+					"OK",
+					"concurrent math::add({i}, {}): {:?}",
+					i * 10,
+					results[0].result
+				);
+				let expected = i + i * 10;
+				assert_eq!(
+					results[0].result,
+					serde_json::json!(expected),
+					"concurrent math::add({i}, {}) expected {expected}",
+					i * 10,
+				);
+			}));
+		}
+
+		for handle in handles {
+			handle.await?;
+		}
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_mod_concurrent() -> Result<(), Box<dyn std::error::Error>> {
+		check_mod_concurrent(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Concurrent async invocation test
+	// -------------------------------------------------------------------
+
+	async fn check_concurrent_async(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let mut handles = Vec::new();
+		for age in [15, 16, 17, 18, 19, 20, 21] {
+			let addr = addr.clone();
+			let ns = ns.clone();
+			let db = db.clone();
+			handles.push(tokio::spawn(async move {
+				let query = format!("RETURN mod::demo::can_drive({age});");
+				let results = sql_query(&addr, &ns, &db, &query).await;
+				assert_eq!(results[0].status, "OK", "can_drive({age}): {:?}", results[0].result);
+				let expected = age >= 18;
+				assert_eq!(
+					results[0].result,
+					serde_json::Value::Bool(expected),
+					"can_drive({age}) expected {expected}"
+				);
+			}));
+		}
+
+		for handle in handles {
+			handle.await?;
+		}
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_concurrent_async() -> Result<(), Box<dyn std::error::Error>> {
+		check_concurrent_async(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// KV persistence across invocations
+	// -------------------------------------------------------------------
+
+	async fn check_kv_persistence(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// Set a KV value in one invocation
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::kv_set_value('persist_test', 42);").await;
+		assert_eq!(results[0].status, "OK", "kv_set_value: {:?}", results[0].result);
+
+		// Read it back in a separate invocation -- should persist across calls
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::kv_get_value('persist_test');").await;
+		assert_eq!(results[0].status, "OK", "kv_get_value: {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(42));
+
+		// Overwrite and verify
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::kv_set_value('persist_test', 99);").await;
+		assert_eq!(results[0].status, "OK", "kv_set_value(99): {:?}", results[0].result);
+
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::kv_get_value('persist_test');").await;
+		assert_eq!(results[0].status, "OK", "kv_get_value(99): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::json!(99));
+
+		// Non-existent key should return None/null
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::kv_get_value('nonexistent');").await;
+		assert_eq!(results[0].status, "OK", "kv_get_value(nonexistent): {:?}", results[0].result);
+		assert_eq!(results[0].result, serde_json::Value::Null);
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_kv_persistence() -> Result<(), Box<dyn std::error::Error>> {
+		check_kv_persistence(&DEMO_DIR.canonical).await
+	}
+
+	// -------------------------------------------------------------------
+	// Error propagation tests
+	// -------------------------------------------------------------------
+
+	async fn check_error_propagation(bucket_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		// result(true) returns Err -- should propagate as module error
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::result(true);").await;
+		assert_eq!(results[0].status, "ERR", "Expected error from result(true)");
+
+		// safe_divide(1, 0) returns Err("Division by zero")
+		let results = sql_query(&addr, &ns, &db, "RETURN mod::demo::safe_divide(1, 0);").await;
+		assert_eq!(results[0].status, "ERR", "Expected division by zero error");
+
+		// parse_number with invalid input
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::parse_number('not_a_number');").await;
+		assert_eq!(results[0].status, "ERR", "Expected parse error");
+
+		// Calling a completely nonexistent module function
+		let results =
+			sql_query(&addr, &ns, &db, "RETURN mod::demo::nonexistent_function(1);").await;
+		assert_eq!(results[0].status, "ERR", "Expected error for nonexistent function");
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_error_propagation() -> Result<(), Box<dyn std::error::Error>> {
+		check_error_propagation(&DEMO_DIR.canonical).await
 	}
 
 	// -------------------------------------------------------------------
@@ -358,16 +850,17 @@ mod surrealism_integration {
 				version: semver::Version::new(0, 1, 0),
 			},
 			capabilities: Default::default(),
-			abi: AbiVersion::P2,
+			abi: AbiVersion::CURRENT,
 			attach: SurrealismAttach {
 				fs: Some("fs".to_string()),
 			},
 		};
 
+		// Component preamble (layer 1, version 0x0d)
 		let package = SurrealismPackage {
 			config,
-			wasm: vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
-			kind: surrealism_runtime::package::ModuleKind::CoreModule,
+			wasm: vec![0x00, 0x61, 0x73, 0x6d, 0x0d, 0x00, 0x01, 0x00],
+			exports: surrealism_runtime::exports::ExportsManifest::empty(),
 			fs: None,
 		};
 

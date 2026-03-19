@@ -856,22 +856,44 @@ impl Capabilities {
 		self.allow_http.matches(target) && !self.deny_http.matches(target)
 	}
 
-	/// Checks wether capabilities required by a Surrealism package are allowed.
-	/// The `allow_arbitrary_queries` capability is not checked as that is to be used by the
-	/// runtime.
+	/// Checks whether capabilities required by a Surrealism package are allowed
+	/// by the server configuration. The `allow_arbitrary_queries` capability is
+	/// not checked here as that is enforced at runtime by the host `sql()` call.
 	#[cfg(feature = "surrealism")]
 	pub fn validate_surrealism_capabilities(
 		&self,
 		capabilities: SurrealismCapabilities,
 	) -> anyhow::Result<()> {
+		use surrealism_runtime::capabilities::FunctionTargets;
+
 		if capabilities.allow_scripting && !self.allows_scripting() {
 			bail!("Surrealism package requires scripting, but it is not allowed");
 		}
 
-		if !capabilities.allow_functions.is_empty() {
-			for fnc in capabilities.allow_functions.iter() {
-				if !self.allows_function_name(fnc) {
-					bail!("Surrealism package requires function '{}', but it is not allowed", fnc);
+		match &capabilities.allow_functions {
+			FunctionTargets::None => {}
+			FunctionTargets::All => {
+				// Module wants to call any function -- the server must allow
+				// at least something. We cannot validate every possible function
+				// name here, so we just log the intent.
+				tracing::debug!("Surrealism package declares allow_functions = [\"*\"]");
+			}
+			FunctionTargets::Some(patterns) => {
+				for pattern in patterns {
+					// For family wildcards like "http::*" or "http", we check
+					// a representative name to see if the family is allowed.
+					// For specific functions like "fn::user_exists", check directly.
+					let representative = if pattern.ends_with("::*") || !pattern.contains("::") {
+						format!("{}::__check", pattern.strip_suffix("::*").unwrap_or(pattern))
+					} else {
+						pattern.clone()
+					};
+					if !self.allows_function_name(&representative) {
+						bail!(
+							"Surrealism package requires function pattern '{}', but it is not allowed by the server",
+							pattern
+						);
+					}
 				}
 			}
 		}
