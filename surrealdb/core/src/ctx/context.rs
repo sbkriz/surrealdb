@@ -997,12 +997,16 @@ impl Context {
 				let server_max_memory = *crate::cnf::SURREALISM_MAX_MEMORY;
 				let server_max_execution_time =
 					crate::cnf::SURREALISM_MAX_EXECUTION_TIME.map(std::time::Duration::from_millis);
+				let server_max_kv_entries = *crate::cnf::SURREALISM_MAX_KV_ENTRIES;
+				let server_max_kv_value_bytes = *crate::cnf::SURREALISM_MAX_KV_VALUE_BYTES;
 
 				let runtime = Arc::new(Runtime::new(
 					package,
 					server_pool_size,
 					server_max_memory,
 					server_max_execution_time,
+					server_max_kv_entries,
+					server_max_kv_value_bytes,
 				)?);
 
 				Ok(runtime)

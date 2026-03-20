@@ -11,7 +11,7 @@ mod surrealism_integration {
 
 	use serde::Deserialize;
 	use surrealism_runtime::config::{
-		AbiVersion, SurrealismAttach, SurrealismConfig, SurrealismMeta,
+		AbiVersion, SurrealismAttach, SurrealismConfig, SurrealismMeta, Target,
 	};
 	use surrealism_runtime::package::SurrealismPackage;
 	use test_log::test;
@@ -844,6 +844,7 @@ mod surrealism_integration {
 		}
 
 		let config = SurrealismConfig {
+			target: Target::default(),
 			meta: SurrealismMeta {
 				organisation: "test".to_string(),
 				name: "roundtrip".to_string(),

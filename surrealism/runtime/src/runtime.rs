@@ -22,7 +22,7 @@
 //! use surrealism_runtime::{runtime::Runtime, package::SurrealismPackage};
 //!
 //! // Compile once (expensive)
-//! let runtime = Arc::new(Runtime::new(package, 8, None, None)?);
+//! let runtime = Arc::new(Runtime::new(package, 8, None, None, None, None)?);
 //!
 //! // For each concurrent request:
 //! let runtime = runtime.clone();
@@ -107,8 +107,9 @@ impl Runtime {
 	/// Compile the WASM and prepare the runtime.
 	/// This is expensive — do it once and share via `Arc<Runtime>`.
 	///
-	/// `server_pool_size`, `server_max_memory`, and `server_max_execution_time`
-	/// are the server-level ceilings from environment variables.
+	/// `server_pool_size`, `server_max_memory`, `server_max_execution_time`,
+	/// `server_max_kv_entries`, and `server_max_kv_value_bytes` are the
+	/// server-level ceilings from environment variables.
 	pub fn new(
 		SurrealismPackage {
 			wasm,
@@ -119,6 +120,8 @@ impl Runtime {
 		server_pool_size: usize,
 		server_max_memory: Option<usize>,
 		server_max_execution_time: Option<Duration>,
+		server_max_kv_entries: Option<usize>,
+		server_max_kv_value_bytes: Option<usize>,
 	) -> SurrealismResult<Self> {
 		if config.abi != AbiVersion::CURRENT {
 			return Err(SurrealismError::UnsupportedAbi {
@@ -146,10 +149,18 @@ impl Runtime {
 				(s, m) => s.or(m),
 			};
 
-		let kv_store = Arc::new(BTreeMapStore::with_limits(
-			config.capabilities.max_kv_entries,
-			config.capabilities.max_kv_value_bytes,
-		));
+		let max_kv_entries = match (server_max_kv_entries, config.capabilities.max_kv_entries) {
+			(Some(s), Some(m)) => Some(s.min(m)),
+			(s, m) => s.or(m),
+		};
+
+		let max_kv_value_bytes =
+			match (server_max_kv_value_bytes, config.capabilities.max_kv_value_bytes) {
+				(Some(s), Some(m)) => Some(s.min(m)),
+				(s, m) => s.or(m),
+			};
+
+		let kv_store = Arc::new(BTreeMapStore::with_limits(max_kv_entries, max_kv_value_bytes));
 
 		let config = Arc::new(config);
 		let wasm_size = wasm.len();

@@ -111,6 +111,33 @@ pub static SURREALISM_MAX_EXECUTION_TIME: LazyLock<Option<u64>> = LazyLock::new(
 	})
 });
 
+/// Per-module KV store entry count ceiling for Surrealism WASM modules (default: none / unlimited).
+/// Effective limit is `min(this, module_config.max_kv_entries)` when both are set.
+pub static SURREALISM_MAX_KV_ENTRIES: LazyLock<Option<usize>> = LazyLock::new(|| {
+	std::env::var("SURREAL_SURREALISM_MAX_KV_ENTRIES").ok().and_then(|s| match s.parse::<usize>() {
+		Ok(v) => Some(v),
+		Err(e) => {
+			tracing::warn!("Invalid SURREAL_SURREALISM_MAX_KV_ENTRIES: {e}");
+			None
+		}
+	})
+});
+
+/// Per-module KV store maximum value size in bytes for Surrealism WASM modules
+/// (default: none / unlimited). Effective limit is
+/// `min(this, module_config.max_kv_value_bytes)` when both are set.
+pub static SURREALISM_MAX_KV_VALUE_BYTES: LazyLock<Option<usize>> = LazyLock::new(|| {
+	std::env::var("SURREAL_SURREALISM_MAX_KV_VALUE_BYTES").ok().and_then(|s| {
+		match s.parse::<usize>() {
+			Ok(v) => Some(v),
+			Err(e) => {
+				tracing::warn!("Invalid SURREAL_SURREALISM_MAX_KV_VALUE_BYTES: {e}");
+				None
+			}
+		}
+	})
+});
+
 /// Log level for Surrealism module stdout output (default: "debug").
 /// Controls the tracing level at which module stdout is emitted.
 /// Valid values: "trace", "debug", "info", "warn", "error".

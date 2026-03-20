@@ -199,12 +199,9 @@ ort = { version = "2.0.0-rc.11", features = ["cuda", "ndarray"] }
 # Surrealism specific dependencies
 tar = "0.4.44"
 toml = "0.9.11"
-walrus = "0.25"
 wasm-encoder = "0.245"
 wasm-opt = "0.116.1"
 wasmparser = "0.245"
-wit-component = "0.245"
-wit-parser = "0.245"
 wasmtime = { version = "42", default-features = false, features = ["async", "cranelift", "winch", "runtime", "std", "wat", "component-model", "parallel-compilation"] }
 wasmtime-wasi = { version = "42", features = ["p1", "p2"] }
 wit-bindgen = { version = "0.51", default-features = false, features = ["macros", "realloc"] }

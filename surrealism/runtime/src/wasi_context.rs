@@ -6,6 +6,7 @@ use anyhow::Result;
 use ipnet::IpNet;
 use surrealism_types::err::PrefixErr;
 use wasmtime::component::ResourceTable;
+use wasmtime_wasi::sockets::SocketAddrUse;
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtx, WasiCtxBuilder};
 
 /// A resolved allow-list entry for WASI socket address filtering.
@@ -103,9 +104,18 @@ pub fn build(fs_root: Option<&Path>, allow_net: &[String]) -> Result<(WasiCtx, R
 		builder.allow_udp(false);
 		builder.allow_ip_name_lookup(false);
 	} else {
+		// Hostnames are resolved at load time by parse_filters, so guests
+		// don't need runtime DNS. Disabling it prevents DNS tunneling.
+		builder.allow_ip_name_lookup(false);
 		let filters = Arc::new(parse_filters(allow_net));
-		builder.socket_addr_check(move |addr, _use| {
-			let allowed = filters.iter().any(|f| f.matches(&addr));
+		builder.socket_addr_check(move |addr, reason| {
+			let is_outbound = matches!(
+				reason,
+				SocketAddrUse::TcpConnect
+					| SocketAddrUse::UdpConnect
+					| SocketAddrUse::UdpOutgoingDatagram
+			);
+			let allowed = is_outbound && filters.iter().any(|f| f.matches(&addr));
 			Box::pin(async move { allowed })
 		});
 	}

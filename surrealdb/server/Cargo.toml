@@ -37,12 +37,9 @@ surrealism = [
     "surrealdb-core/surrealism",
     "dep:dialoguer",
     "dep:surrealism-runtime",
-    "dep:walrus",
     "dep:wasm-encoder",
     "dep:wasm-opt",
     "dep:wasmparser",
-    "dep:wit-component",
-    "dep:wit-parser",
 ]
 storage-mem = ["surrealdb/kv-mem", "surrealdb-core/kv-mem"]
 storage-indxdb = ["surrealdb/kv-indxdb", "surrealdb-core/kv-indxdb"]
@@ -148,12 +145,9 @@ pprof = { workspace = true, features = [
     "prost-codec",
 ], optional = true }
 surrealism-runtime = { workspace = true, optional = true }
-walrus = { workspace = true, optional = true }
 wasm-encoder = { workspace = true, optional = true }
 wasm-opt = { workspace = true, optional = true }
 wasmparser = { workspace = true, optional = true }
-wit-component = { workspace = true, optional = true }
-wit-parser = { workspace = true, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 nu-ansi-term = "0.50.3"

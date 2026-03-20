@@ -185,6 +185,9 @@ impl InvocationContext for Host {
 				}
 			}
 			Some("ml") => {
+				if segments.len() < 2 {
+					bail!("Expected model name after 'ml::' prefix in '{fnc}'");
+				}
 				let name = segments[1..].join("::");
 				let version = version.ok_or_else(|| {
 					anyhow::anyhow!("Expected version for model function '{fnc}'")
