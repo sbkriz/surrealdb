@@ -1020,6 +1020,7 @@ mod tests {
 	#[cfg(feature = "http")]
 	use url::Url;
 
+	#[cfg(all(feature = "allocation-tracking", feature = "allocator"))]
 	use crate::cnf::MEMORY_THRESHOLD;
 	use crate::ctx::Context;
 	use crate::ctx::reason::Reason;

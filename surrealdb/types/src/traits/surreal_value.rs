@@ -1,13 +1,16 @@
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap, HashSet, LinkedList};
+use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque};
 use std::hash::Hash;
 use std::rc::Rc;
 use std::sync::Arc;
 
 use rust_decimal::Decimal;
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 use crate as surrealdb_types;
-use crate::error::{ConversionError, LengthMismatchError, OutOfRangeError};
+use crate::error::{ConversionError, LengthMismatchError, OutOfRangeError, SerializationError};
+use crate::traits::ser::Serializer;
 use crate::{
 	Array, Bytes, Datetime, Duration, Error, File, Geometry, Kind, Number, Object, Range, RecordId,
 	Set, SurrealNone, SurrealNull, Table, Uuid, Value, kind,
@@ -472,28 +475,28 @@ impl_surreal_value!(
 	}
 );
 
-impl SurrealValue for Cow<'static, str> {
+impl<T: ToOwned + ?Sized> SurrealValue for Cow<'_, T>
+where
+	T::Owned: SurrealValue,
+{
 	fn kind_of() -> Kind {
-		kind!(string)
+		<T::Owned>::kind_of()
 	}
 
 	fn is_value(value: &Value) -> bool {
-		matches!(value, Value::String(_))
+		<T::Owned>::is_value(value)
 	}
 
 	fn into_value(self) -> Value {
-		Value::String(self.to_string())
+		<T::Owned>::into_value(self.into_owned())
 	}
 
 	fn from_value(value: Value) -> Result<Self, Error> {
-		let Value::String(s) = value else {
-			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
-		};
-		Ok(Cow::Owned(s))
+		<T::Owned>::from_value(value).map(Cow::Owned)
 	}
 }
 
-impl SurrealValue for &'static str {
+impl SurrealValue for &str {
 	fn kind_of() -> Kind {
 		kind!(string)
 	}
@@ -506,9 +509,10 @@ impl SurrealValue for &'static str {
 		Value::String(self.to_string())
 	}
 
-	fn from_value(_value: Value) -> Result<Self, Error> {
-		Err(Error::internal(
-			"Cannot deserialize &'static str from value: static string references cannot be created from runtime values".to_string(),
+	fn from_value(_: Value) -> Result<Self, Error> {
+		Err(Error::serialization(
+			"Cannot convert to &str because the value would be dropped and the reference would dangle. Use String or Cow<'_, str> instead".to_owned(),
+			SerializationError::Deserialization,
 		))
 	}
 }
@@ -586,6 +590,18 @@ impl_surreal_value!(
 			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
 		};
 		Ok(d)
+	}
+);
+
+impl_surreal_value!(
+	chrono::NaiveDate as kind!(datetime),
+	(value) => matches!(value, Value::Datetime(_)),
+	(self) => Value::Datetime(Datetime(chrono::DateTime::from_naive_utc_and_offset(self.and_time(chrono::NaiveTime::MIN), chrono::Utc))),
+	(value) => {
+		let Value::Datetime(Datetime(d)) = value else {
+			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
+		};
+		Ok(d.date_naive())
 	}
 );
 
@@ -1381,37 +1397,7 @@ impl SurrealValue for serde_json::Value {
 	}
 
 	fn from_value(value: Value) -> Result<Self, Error> {
-		match value {
-			Value::None | Value::Null => Ok(serde_json::Value::Null),
-			Value::Bool(b) => Ok(serde_json::Value::Bool(b)),
-			Value::Number(n) => match n {
-				Number::Int(i) => Ok(serde_json::Value::Number(serde_json::Number::from(i))),
-				Number::Float(f) => {
-					if let Some(num) = serde_json::Number::from_f64(f) {
-						Ok(serde_json::Value::Number(num))
-					} else {
-						Ok(serde_json::Value::Null)
-					}
-				}
-				Number::Decimal(d) => Ok(serde_json::Value::String(d.to_string())),
-			},
-			Value::String(s) => Ok(serde_json::Value::String(s)),
-			Value::Object(o) => {
-				let mut obj = serde_json::Map::new();
-				for (k, v) in o.0 {
-					obj.insert(k, serde_json::Value::from_value(v)?);
-				}
-				Ok(serde_json::Value::Object(obj))
-			}
-			Value::Array(a) => {
-				let mut arr = Vec::new();
-				for v in a.0 {
-					arr.push(serde_json::Value::from_value(v)?);
-				}
-				Ok(serde_json::Value::Array(arr))
-			}
-			_ => Err(ConversionError::from_value(Self::kind_of(), &value).into()),
-		}
+		Ok(value.into_json_value())
 	}
 }
 
@@ -1632,5 +1618,250 @@ impl<T: SurrealValue + Hash + Eq> SurrealValue for HashSet<T> {
 		a.into_iter().map(|v| T::from_value(v)).collect::<Result<HashSet<T>, Error>>().map_err(
 			|e| Error::internal(format!("Failed to convert to {}: {}", Self::kind_of(), e)),
 		)
+	}
+}
+
+impl<T: SurrealValue + Ord> SurrealValue for BTreeSet<T> {
+	fn kind_of() -> Kind {
+		kind!(array<(T::kind_of())>)
+	}
+
+	fn is_value(value: &Value) -> bool {
+		if let Value::Array(Array(array)) = value {
+			array.iter().all(T::is_value)
+		} else {
+			false
+		}
+	}
+
+	fn into_value(self) -> Value {
+		Value::Array(Array(self.into_iter().map(SurrealValue::into_value).collect()))
+	}
+
+	fn from_value(value: Value) -> Result<Self, Error> {
+		let Value::Array(Array(array)) = value else {
+			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
+		};
+
+		array.into_iter().map(|v| T::from_value(v)).collect::<Result<BTreeSet<T>, Error>>().map_err(
+			|error| {
+				Error::serialization(
+					format!("Failed to convert to {}: {error}", Self::kind_of()),
+					SerializationError::Deserialization,
+				)
+			},
+		)
+	}
+}
+
+impl<T: SurrealValue> SurrealValue for VecDeque<T> {
+	fn kind_of() -> Kind {
+		kind!(array<(T::kind_of())>)
+	}
+
+	fn is_value(value: &Value) -> bool {
+		if let Value::Array(Array(array)) = value {
+			array.iter().all(T::is_value)
+		} else {
+			false
+		}
+	}
+
+	fn into_value(self) -> Value {
+		Value::Array(Array(self.into_iter().map(SurrealValue::into_value).collect()))
+	}
+
+	fn from_value(value: Value) -> Result<Self, Error> {
+		let Value::Array(Array(array)) = value else {
+			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
+		};
+
+		array.into_iter().map(|v| T::from_value(v)).collect::<Result<VecDeque<T>, Error>>().map_err(
+			|error| {
+				Error::serialization(
+					format!("Failed to convert to {}: {error}", Self::kind_of()),
+					SerializationError::Deserialization,
+				)
+			},
+		)
+	}
+}
+
+impl<T: SurrealValue + Ord> SurrealValue for BinaryHeap<T> {
+	fn kind_of() -> Kind {
+		kind!(array<(T::kind_of())>)
+	}
+
+	fn is_value(value: &Value) -> bool {
+		if let Value::Array(Array(array)) = value {
+			array.iter().all(T::is_value)
+		} else {
+			false
+		}
+	}
+
+	fn into_value(self) -> Value {
+		Value::Array(Array(self.into_iter().map(SurrealValue::into_value).collect()))
+	}
+
+	fn from_value(value: Value) -> Result<Self, Error> {
+		let Value::Array(Array(array)) = value else {
+			return Err(ConversionError::from_value(Self::kind_of(), &value).into());
+		};
+
+		array
+			.into_iter()
+			.map(|v| T::from_value(v))
+			.collect::<Result<BinaryHeap<T>, Error>>()
+			.map_err(|error| {
+				Error::serialization(
+					format!("Failed to convert to {}: {error}", Self::kind_of()),
+					SerializationError::Deserialization,
+				)
+			})
+	}
+}
+
+/// A wrapper struct that allows bridging between SurrealValue and types that implement Serialize
+/// and Deserialize
+///
+/// # A note on parity with `SurrealValue`
+/// Serializing and Deserializing a type does *not* behave the same as `SurrealValue` in some cases.
+/// Notably:
+/// - Enum variants behave differently
+/// - The only primitives taken advantage of are String, Number, Bool, Bytes, Object, and Array
+///
+/// As such, it's best to use SurrealValue directly where possible. This is intended for types where
+/// an implementation of SurrealValue isn't available or practical
+pub struct SerdeWrapper<T: Serialize + DeserializeOwned>(pub T);
+
+impl<T: Serialize + DeserializeOwned> SurrealValue for SerdeWrapper<T> {
+	fn kind_of() -> Kind {
+		Kind::Any
+	}
+
+	fn into_value(self) -> Value {
+		self.0.serialize(Serializer).expect("serialization to a value failed!")
+	}
+
+	fn from_value(value: Value) -> Result<Self, Error>
+	where
+		Self: Sized,
+	{
+		Ok(Self(T::deserialize(value)?))
+	}
+}
+
+#[cfg(test)]
+mod test {
+	use std::fmt::Debug;
+
+	use rstest::rstest;
+	use serde::{Deserialize, Serialize};
+
+	use super::*;
+
+	#[derive(Serialize, Deserialize, PartialEq, Debug)]
+	enum Test {
+		A,
+		B(u8),
+		C {
+			hi: String,
+		},
+	}
+
+	#[derive(Serialize, Deserialize, PartialEq, Debug)]
+	struct Test2 {
+		is_goober: bool,
+		sneaky_and_evil: (),
+		also_sneaky_and_evil: Gerald,
+	}
+
+	#[derive(Serialize, Deserialize, PartialEq, Debug)]
+	struct Gerald;
+
+	#[rstest]
+	#[case::u8(64_u8)]
+	#[case::u16(64_u16)]
+	#[case::u32(64_u32)]
+	#[case::u64(64_u64)]
+	#[case::i8(64_i8)]
+	#[case::i16(64_i16)]
+	#[case::i32(64_i32)]
+	#[case::i64(64_i64)]
+	#[case::f32(64.0_f32)]
+	#[case::f64(64.0_f64)]
+	#[case::bool(true)]
+	#[case::zst_unit(())]
+	#[case::zst_arr([(); 0])]
+	#[case::zst_struct(Gerald)]
+	// static strings don't work because Value isn't zero-copy
+	//#[case::static_str("woag!")]
+	#[case::string("woag!".to_string())]
+	#[case::unit_enum(Test::A)]
+	#[case::newtype_enum(Test::B(64))]
+	#[case::struct_enum(Test::C{hi: "woag!".to_string()})]
+	#[case::_struct(Test2 {
+		is_goober: true,
+		sneaky_and_evil: (),
+		also_sneaky_and_evil: Gerald
+	})]
+	#[allow(non_snake_case)]
+	fn wrapper_roundtrip<'a>(#[case] value: impl Serialize + Deserialize<'a> + PartialEq + Debug) {
+		let serialized_value = value.serialize(Serializer).expect("this should work!");
+		let deserialized_value =
+			<_ as Deserialize>::deserialize(serialized_value).expect("this should work!");
+		assert_eq!(value, deserialized_value);
+	}
+
+	#[test]
+	fn cow_str_roundtrip() {
+		let original: Cow<'_, str> = Cow::Borrowed("hello");
+		let value = original.clone().into_value();
+		assert!(matches!(value, Value::String(ref s) if s == "hello"));
+		let recovered = Cow::<'_, str>::from_value(value).unwrap();
+		assert_eq!(recovered, "hello");
+
+		let owned: Cow<'_, str> = Cow::Owned("world".to_string());
+		let value = owned.into_value();
+		let recovered = Cow::<'_, str>::from_value(value).unwrap();
+		assert_eq!(recovered, "world");
+	}
+
+	#[test]
+	fn cow_str_kind_of() {
+		assert_eq!(Cow::<'_, str>::kind_of(), kind!(string));
+	}
+
+	#[test]
+	fn cow_str_is_value() {
+		assert!(Cow::<'_, str>::is_value(&Value::String("test".to_string())));
+		assert!(!Cow::<'_, str>::is_value(&Value::Number(Number::Int(42))));
+	}
+
+	#[test]
+	fn cow_clone_type_roundtrip() {
+		let original: Cow<'_, str> = Cow::Owned("hello".to_string());
+		let value = original.into_value();
+		assert!(matches!(value, Value::String(ref s) if s == "hello"));
+		let recovered = Cow::<'_, str>::from_value(value).unwrap();
+		assert_eq!(recovered.into_owned(), "hello");
+
+		let original: Cow<'_, i64> = Cow::Owned(42);
+		let value = original.into_value();
+		let recovered = Cow::<'_, i64>::from_value(value).unwrap();
+		assert_eq!(recovered.into_owned(), 42);
+
+		let original: Cow<'_, bool> = Cow::Owned(true);
+		let value = original.into_value();
+		let recovered = Cow::<'_, bool>::from_value(value).unwrap();
+		assert!(recovered.into_owned());
+	}
+
+	#[test]
+	fn cow_from_value_type_mismatch() {
+		let value = Value::Number(Number::Int(42));
+		let result = Cow::<'_, str>::from_value(value);
+		assert!(result.is_err());
 	}
 }

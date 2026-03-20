@@ -18,6 +18,7 @@ use anyhow::{Context as _, Result, ensure};
 use async_channel::{Receiver, Sender};
 use bytes::{Bytes, BytesMut};
 use futures::{Future, Stream};
+use rand::{Rng, thread_rng};
 use reblessive::TreeStack;
 use surrealdb_types::{AuthError, Error as TypesError, SurrealValue, object};
 #[cfg(not(target_family = "wasm"))]
@@ -25,6 +26,7 @@ use tokio::spawn;
 use tokio::sync::Notify;
 #[cfg(feature = "jwks")]
 use tokio::sync::RwLock;
+use tokio::time::{Instant, sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, instrument, trace, warn};
 use uuid::Uuid;
@@ -89,12 +91,12 @@ use crate::{CommunityComposer, syn};
 
 const TARGET: &str = "surrealdb::core::kvs::ds";
 
-// If there are an infinite number of heartbeats, then we want to go
-// batch-by-batch spread over several checks
+/// If there are an infinite number of heartbeats, then we want to go
+/// batch-by-batch spread over several checks
 const LQ_CHANNEL_SIZE: usize = 15_000;
 
-// The role assigned to the initial user created when starting the server with
-// credentials for the first time
+/// The role assigned to the initial user created when starting the server with
+/// credentials for the first time
 const INITIAL_USER_ROLE: &str = "owner";
 
 /// The underlying datastore instance which stores the dataset.
@@ -847,7 +849,8 @@ impl Datastore {
 	// Returns the current version and a flag indicating if this is a new datastore
 	#[instrument(err, level = "trace", target = "surrealdb::core::kvs::ds", skip_all)]
 	pub async fn check_version(&self) -> Result<(MajorVersion, bool)> {
-		let (version, is_new) = self.get_version().await?;
+		// Retry because concurrent instances may conflict when writing the version key
+		let (version, is_new) = Self::retry(Duration::from_secs(60), || self.get_version()).await?;
 		// Check we are running the latest version
 		if !version.is_latest() {
 			bail!(Error::OutdatedStorageVersion {
@@ -916,6 +919,14 @@ impl Datastore {
 	/// Setup the initial cluster access credentials
 	#[instrument(err, level = "trace", target = "surrealdb::core::kvs::ds", skip_all)]
 	pub async fn initialise_credentials(&self, user: &str, pass: &str) -> Result<()> {
+		// Retry because concurrent instances may conflict when creating the root user
+		Self::retry(Duration::from_secs(60), || self.initialise_credentials_attempt(user, pass))
+			.await
+	}
+
+	/// Single attempt to create the root user if none exists.
+	/// Separated from `initialise_credentials` so it can be wrapped in the retry loop.
+	async fn initialise_credentials_attempt(&self, user: &str, pass: &str) -> Result<()> {
 		// Start a new writeable transaction
 		let txn = self.transaction(Write, Optimistic).await?.enclose();
 		// Fetch the root users from the storage
@@ -1004,14 +1015,57 @@ impl Datastore {
 	/// Initialise the cluster and run bootstrap utilities
 	#[instrument(err, level = "trace", target = "surrealdb::core::kvs::ds", skip_all)]
 	pub async fn bootstrap(&self) -> Result<()> {
+		// Each bootstrap step is retried independently, because concurrent instances
+		// writing to the same cluster metadata keys may cause transaction conflicts.
+		let time_out = Duration::from_secs(60);
 		// Insert this node in the cluster
-		self.insert_node().await?;
+		Self::retry(time_out, || self.insert_node()).await?;
 		// Mark inactive nodes as archived
-		self.expire_nodes().await?;
+		Self::retry(time_out, || self.expire_nodes()).await?;
 		// Remove archived nodes
-		self.remove_nodes().await?;
+		Self::retry(time_out, || self.remove_nodes()).await?;
 		// Everything ok
 		Ok(())
+	}
+
+	/// Retries an async operation until it succeeds or `timeout` elapses.
+	///
+	/// Only [`TransactionConflict`](crate::kvs::Error::TransactionConflict)
+	/// errors are retried; any other error is returned immediately to the
+	/// caller. On each retryable failure a randomised delay (0–10 s) is
+	/// applied before the next attempt, adding jitter to reduce repeated
+	/// collisions when multiple instances start concurrently against the
+	/// same storage backend.
+	///
+	/// The timeout is checked only after a *failed* attempt; a successful
+	/// result is always returned immediately, even if the elapsed time
+	/// exceeds the budget. This means the total wall-clock time can exceed
+	/// `timeout` by up to one attempt duration plus the preceding back-off.
+	/// If no attempt succeeds within the budget, the conflict error from
+	/// the last failed attempt is surfaced.
+	async fn retry<F, Fut, R>(timeout: Duration, func: F) -> Result<R>
+	where
+		F: Fn() -> Fut,
+		Fut: Future<Output = Result<R>>,
+	{
+		let time = Instant::now();
+		loop {
+			match func().await {
+				Ok(result) => return Ok(result),
+				Err(e) => {
+					if let Some(crate::kvs::Error::TransactionConflict(_)) = e.downcast_ref() {
+						if time.elapsed() > timeout {
+							bail!(e);
+						}
+						// Randomised back-off to stagger retries across competing instances
+						let tempo = Duration::from_secs(thread_rng().gen_range(0..10));
+						sleep(tempo).await;
+					} else {
+						return Err(e);
+					}
+				}
+			}
+		}
 	}
 
 	/// Inserts a node for the first time into the cluster.
@@ -1409,17 +1463,26 @@ impl Datastore {
 	/// (one spawned task per index), while on wasm they run sequentially.
 	/// Indexes that support compaction include full-text, count, and HNSW.
 	///
-	/// Each compaction runs on its own write transaction, while a separate
-	/// outer transaction manages the queue. Once all compactions have
-	/// completed, the entire queue range is deleted and the outer transaction
-	/// is committed. Compaction failures are logged but do not prevent other
-	/// indexes from being processed.
+	/// The queue is read in a short-lived read transaction so that user
+	/// transactions enqueueing new compaction requests do not conflict with
+	/// the compaction cycle. Each index compaction runs on its own write
+	/// transaction. Once all compactions have completed, a separate write
+	/// transaction removes the processed queue entries. Compaction failures
+	/// are logged but do not prevent other indexes from being processed.
 	///
 	/// # Arguments
 	/// * `dbs` - The shared datastore instance, cloned into each compaction task
 	/// * `interval` - The interval between compaction runs, used to calculate the lease duration
+	///
+	/// # Returns
+	/// A tuple `(iterations, errors)` where `iterations` is the number of
+	/// compaction batches processed and `errors` is the total number of
+	/// individual index compaction failures across all batches.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::ds", skip(dbs))]
-	pub async fn index_compaction(dbs: Arc<Datastore>, interval: Duration) -> Result<()> {
+	pub async fn index_compaction(
+		dbs: Arc<Datastore>,
+		interval: Duration,
+	) -> Result<(usize, usize)> {
 		// Output function invocation details to logs
 		trace!(target: TARGET, "Attempting index compaction process");
 		// Create a new lease handler
@@ -1430,31 +1493,53 @@ impl Datastore {
 			TaskLeaseType::IndexCompaction,
 			interval * 2,
 		)?;
+		let mut count_iteration = 0;
+		let mut count_error = 0;
 		// We continue without interruptions while there are keys and the lease
 		loop {
 			// Attempt to acquire a lease for the IndexCompaction task
 			// If we don't get the lease, another node is handling this task
 			if !lh.has_lease().await? {
-				return Ok(());
+				return Ok((count_iteration, count_error));
 			}
 			// Output function invocation details to logs
 			trace!(target: TARGET, "Running index compaction process");
-			// Collect every item in the queue
+			// Read the compaction queue in a short-lived read transaction
+			// to avoid holding a write lock across the entire compaction cycle
 			let (beg, end) = IndexCompactionKey::range();
 			let range = beg..end;
-			// Create a new transaction managing the batch
-			let txn = Arc::new(dbs.transaction(Write, Optimistic).await?);
-			// Returns an ordered list of indexes that require compaction
-			let items = catch!(txn, txn.getr(range.clone(), None).await);
-			if items.is_empty() {
+			let items = {
+				let txn = dbs.transaction(Read, Optimistic).await?;
+				let res = txn.getr(range, None).await;
 				let _ = txn.cancel().await;
-				return Ok(());
+				res?
+			};
+			if items.is_empty() {
+				return Ok((count_iteration, count_error));
 			}
-			catch!(txn, Self::index_compaction_loop(dbs.clone(), &lh, items).await);
-			// We can now delete the range
-			catch!(txn, txn.delr(range).await);
-			catch!(txn, txn.commit().await);
+			// Collect the keys so we can delete them after processing
+			let keys: Vec<Key> = items.iter().map(|(k, _)| k.clone()).collect();
+			// Process compaction for each index
+			count_iteration += 1;
+			count_error += Self::index_compaction_loop(dbs.clone(), &lh, items).await?;
+			// Delete the processed queue entries in a separate write
+			// transaction. This avoids conflicts with concurrent user
+			// transactions that may enqueue new compaction requests.
+			// Failed indexes are not re-enqueued here; the next user
+			// write to the affected index will naturally trigger a new
+			// compaction request.
+			let txn = dbs.transaction(Write, Optimistic).await?;
+			for k in &keys {
+				if let Err(e) = txn.del(k).await {
+					warn!(target: TARGET, "Failed to delete compaction queue entry: {e}");
+				}
+			}
+			if let Err(e) = txn.commit().await {
+				warn!(target: TARGET, "Failed to commit compaction queue cleanup: {e}");
+				break;
+			}
 		}
+		Ok((count_iteration, count_error))
 	}
 
 	/// Compacts each distinct index found in the queue items.
@@ -1463,23 +1548,22 @@ impl Datastore {
 	/// distinct index — and joined afterwards. Duplicate queue entries for
 	/// the same index are deduplicated via a [`HashMap`] so only one task is
 	/// spawned per index. Failures are logged but do not abort the loop.
+	///
+	/// Returns the number of indexes that failed to compact.
 	#[cfg(not(target_family = "wasm"))]
 	async fn index_compaction_loop(
 		dbs: Arc<Datastore>,
 		lh: &LeaseHandler,
 		items: Vec<(Key, Val)>,
-	) -> Result<()> {
+	) -> Result<usize> {
 		let mut concurrent_compactions = HashMap::new();
 		for (k, _) in items {
 			lh.try_maintain_lease().await?;
 			let ic = IndexCompactionKey::decode_key(&k)?;
 			let ikb = IndexKeyBase::new(ic.ns, ic.db, ic.tb.as_ref().clone(), ic.ix);
 			if let Entry::Vacant(e) = concurrent_compactions.entry(ikb.clone()) {
-				// Compaction is actually not running for this index,
-				// let's spawn it
 				let dbs = dbs.clone();
 				let jh = spawn(async move {
-					// Each compaction task runs on its own transaction
 					let txn = Arc::new(dbs.transaction(Write, Optimistic).await?);
 					catch!(txn, dbs.process_index_compaction(txn.clone(), &ikb).await);
 					catch!(txn, txn.commit().await);
@@ -1488,26 +1572,33 @@ impl Datastore {
 				e.insert(jh);
 			}
 		}
+		let mut error_count = 0;
 		for (ikb, jh) in concurrent_compactions {
 			if let Err(e) = jh.await? {
-				error!("Index compaction {ikb} fails: {e}")
+				error_count += 1;
+				warn!("Index compaction {ikb} fails: {e}");
 			}
 		}
-		Ok(())
+		Ok(error_count)
 	}
 
 	/// Compacts each distinct index found in the queue items.
 	///
 	/// On wasm, `tokio::spawn` is unavailable so compactions run
 	/// sequentially. A [`HashSet`] is used to skip duplicate queue entries
-	/// for the same index. Failures are logged but do not abort the loop.
+	/// for the same index. Failures are logged but do not abort the loop,
+	/// matching the non-wasm behavior so that a single transient failure
+	/// does not prevent other indexes from being compacted.
+	///
+	/// Returns the number of indexes that failed to compact.
 	#[cfg(target_family = "wasm")]
 	async fn index_compaction_loop(
 		dbs: Arc<Datastore>,
 		lh: &LeaseHandler,
 		items: Vec<(Key, Val)>,
-	) -> Result<()> {
+	) -> Result<usize> {
 		let mut seen = HashSet::new();
+		let mut error_count = 0;
 		for (k, _) in items {
 			lh.try_maintain_lease().await?;
 			let ic = IndexCompactionKey::decode_key(&k)?;
@@ -1515,19 +1606,19 @@ impl Datastore {
 			if !seen.insert(ikb.clone()) {
 				continue;
 			}
-			// Each compaction task runs on its own transaction
-			let txn = Arc::new(dbs.transaction(Write, Optimistic).await?);
-			match dbs.process_index_compaction(txn.clone(), &ikb).await {
-				Err(e) => {
-					error!("Index compaction {ikb} fails: {e}");
-					let _ = txn.cancel().await;
-				}
-				Ok(_) => {
-					catch!(txn, txn.commit().await);
-				}
+			let res: Result<()> = async {
+				let txn = Arc::new(dbs.transaction(Write, Optimistic).await?);
+				catch!(txn, dbs.process_index_compaction(txn.clone(), &ikb).await);
+				catch!(txn, txn.commit().await);
+				Ok(())
+			}
+			.await;
+			if let Err(e) = res {
+				error_count += 1;
+				warn!("Index compaction {ikb} fails: {e}");
 			}
 		}
-		Ok(())
+		Ok(error_count)
 	}
 
 	/// Performs the actual compaction of a single index.
