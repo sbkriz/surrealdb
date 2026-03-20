@@ -174,7 +174,7 @@ impl<'ctx> Planner<'ctx> {
 	/// signature is read so the flag is always consistent with the module's
 	/// declaration.
 	#[cfg(feature = "surrealism")]
-	async fn resolve_module_writeable(&self, module: &str, sub: Option<&str>) -> Result<bool> {
+	async fn resolve_module_writeable(&self, module: &str, sub: Option<&str>) -> Result<bool, Error> {
 		use crate::catalog::providers::DatabaseProvider;
 		use crate::expr::module::ModuleExecutable;
 
@@ -190,13 +190,15 @@ impl<'ctx> Planner<'ctx> {
 		let mod_name = format!("mod::{module}");
 		let val = txn.get_db_module(db_def.namespace_id, db_def.database_id, &mod_name).await?;
 		let executable: ModuleExecutable = val.executable.clone().into();
-		let sig =
-			executable.signature(self.ctx, &db_def.namespace_id, &db_def.database_id, sub).await?;
+		let sig = executable
+			.signature(self.ctx, &db_def.namespace_id, &db_def.database_id, sub)
+			.await
+			.map_err(|e| Error::Internal(e.to_string()))?;
 		Ok(sig.writeable)
 	}
 
 	#[cfg(not(feature = "surrealism"))]
-	async fn resolve_module_writeable(&self, _module: &str, _sub: Option<&str>) -> Result<bool> {
+	async fn resolve_module_writeable(&self, _module: &str, _sub: Option<&str>) -> Result<bool, Error> {
 		Ok(false)
 	}
 
@@ -211,7 +213,7 @@ impl<'ctx> Planner<'ctx> {
 		minor: u32,
 		patch: u32,
 		sub: Option<&str>,
-	) -> Result<bool> {
+	) -> Result<bool, Error> {
 		use crate::expr::module::SiloExecutable;
 
 		let executable = SiloExecutable {
@@ -221,7 +223,8 @@ impl<'ctx> Planner<'ctx> {
 			minor,
 			patch,
 		};
-		let sig = executable.signature(self.ctx, sub).await?;
+		let sig =
+			executable.signature(self.ctx, sub).await.map_err(|e| Error::Internal(e.to_string()))?;
 		Ok(sig.writeable)
 	}
 
@@ -234,7 +237,7 @@ impl<'ctx> Planner<'ctx> {
 		_minor: u32,
 		_patch: u32,
 		_sub: Option<&str>,
-	) -> Result<bool> {
+	) -> Result<bool, Error> {
 		Ok(false)
 	}
 
