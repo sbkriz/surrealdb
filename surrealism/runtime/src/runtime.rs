@@ -45,7 +45,6 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use surrealism_types::err::{PrefixErr, SurrealismError, SurrealismResult};
-use tempfile::TempDir;
 use wasmtime::*;
 use web_time::Instant;
 
@@ -55,7 +54,7 @@ use crate::epoch::{self, EngineHandle};
 use crate::exports::ExportsManifest;
 use crate::host::{InvocationContext, implement_host_functions};
 use crate::kv::BTreeMapStore;
-use crate::package::SurrealismPackage;
+use crate::package::{AttachedFs, SurrealismPackage};
 use crate::store::StoreData;
 
 /// Compiled WASM runtime. Thread-safe, can be shared across threads via Arc.
@@ -67,9 +66,9 @@ pub struct Runtime {
 	instance_pre: component::InstancePre<StoreData>,
 	config: Arc<SurrealismConfig>,
 	wasm_size: usize,
-	/// Holds the extracted filesystem directory alive for the lifetime of the runtime.
-	/// When present, this directory is mounted as a read-only preopened dir for WASM modules.
-	fs_dir: Option<TempDir>,
+	/// Holds the extracted filesystem alive for the lifetime of the runtime.
+	/// When present, its root is mounted as a read-only preopened dir for WASM modules.
+	fs_dir: Option<AttachedFs>,
 	/// Pool of initialized, reusable controllers (capped at `max_pool_size`).
 	/// Controllers in the pool have a NullContext and have already run init().
 	/// Uses `parking_lot::Mutex` for non-poisoning, lower-overhead locking.
@@ -94,7 +93,7 @@ impl fmt::Debug for Runtime {
 		f.debug_struct("Runtime")
 			.field("config", &self.config)
 			.field("wasm_size", &self.wasm_size)
-			.field("fs_dir", &self.fs_dir.as_ref().map(|d| d.path()))
+			.field("fs_dir", &self.fs_dir)
 			.field("pool_size", &pool_size)
 			.field("max_pool_size", &self.max_pool_size)
 			.field("max_memory_bytes", &self.max_memory_bytes)
@@ -335,7 +334,7 @@ impl Runtime {
 	) -> SurrealismResult<Controller> {
 		let t0 = Instant::now();
 
-		let fs_root = self.fs_dir.as_ref().map(|d| d.path());
+		let fs_root = self.fs_dir.as_ref().map(|fs| fs.path());
 		let (wasi_ctx, table) =
 			crate::wasi_context::build(fs_root, &self.config.capabilities.allow_net)?;
 		tracing::debug!(elapsed = ?t0.elapsed(), "new_controller: wasi_context::build");

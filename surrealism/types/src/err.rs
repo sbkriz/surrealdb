@@ -36,6 +36,42 @@ pub enum SurrealismError {
 	Other(#[from] anyhow::Error),
 }
 
+impl SurrealismError {
+	/// Whether this error represents a WASM trap — an unrecoverable fault
+	/// during execution that leaves the instance in an undefined state.
+	///
+	/// After a trap the controller must be dropped (not returned to the pool).
+	/// Non-trap errors (guest `Err` returns, host-side encoding failures, etc.)
+	/// go through normal control flow and leave the instance reusable.
+	pub fn is_trap(&self) -> bool {
+		match self {
+			// Epoch interrupt mid-execution — WASM state is undefined.
+			Self::Timeout {
+				..
+			} => true,
+			// Instantiation failure — no usable instance exists.
+			#[cfg(feature = "host")]
+			Self::Instantiation(_) => true,
+			// Wasmtime error from call_async (actual trap) or typed() (type
+			// mismatch). Conservative: treat all as traps since the instance
+			// may be in an unknown state.
+			#[cfg(feature = "host")]
+			Self::Wasmtime(_) => true,
+			// Compilation failure — no instance was ever created.
+			#[cfg(feature = "host")]
+			Self::Compilation(_) => false,
+			// Guest returned Err through normal control flow.
+			Self::FunctionCallError(_) => false,
+			// Host-side errors (encoding, decoding, config) — no WASM ran.
+			Self::UnsupportedAbi {
+				..
+			} => false,
+			Self::IntConversion(_) => false,
+			Self::Other(_) => false,
+		}
+	}
+}
+
 pub type SurrealismResult<T> = std::result::Result<T, SurrealismError>;
 
 pub trait PrefixErr<T> {

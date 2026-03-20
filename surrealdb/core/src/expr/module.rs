@@ -324,8 +324,7 @@ async fn run_on_runtime(
 	let ctx_timeout = ctx.timeout();
 	let result = controller.invoke_with_timeout(sub.map(String::from), args, ctx_timeout).await;
 
-	let is_trap = matches!(&result, Err(e) if !matches!(e, surrealism_runtime::SurrealismError::FunctionCallError(_)));
-	if is_trap {
+	if result.as_ref().is_err_and(|e| e.is_trap()) {
 		tracing::error!(
 			name = %display_name,
 			error = ?result.as_ref().err(),

@@ -1,7 +1,7 @@
 //! `.surli` archive format: tar + zstd containing `mod.wasm`, config, exports,
 //! and optional `surrealism/fs/` filesystem. Only WASM components are accepted.
 
-use std::fs::{self, File};
+use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 
@@ -31,15 +31,34 @@ fn verify_component(wasm: &[u8]) -> SurrealismResult<()> {
 /// The tar path prefix used for filesystem attachments inside the archive.
 const FS_PREFIX: &str = "surrealism/fs/";
 
+/// Extracted filesystem from a `.surli` archive. The `TempDir` keeps the
+/// directory alive and cleans it up on drop. `root` points to the actual
+/// filesystem root within the temp directory (the `surrealism/fs/` subtree).
+pub struct AttachedFs {
+	_dir: TempDir,
+	root: PathBuf,
+}
+
+impl AttachedFs {
+	pub fn path(&self) -> &Path {
+		&self.root
+	}
+}
+
+impl std::fmt::Debug for AttachedFs {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		f.debug_struct("AttachedFs").field("root", &self.root).finish()
+	}
+}
+
 pub struct SurrealismPackage {
 	pub config: SurrealismConfig,
 	pub wasm: Vec<u8>,
 	/// Exported function signatures parsed from `surrealism/exports.toml`.
 	pub exports: ExportsManifest,
-	/// Extracted filesystem directory from the archive. Present when the
-	/// archive contained `surrealism/fs/` entries. The `TempDir` handle keeps
-	/// the directory alive and cleans it up on drop.
-	pub fs: Option<TempDir>,
+	/// Extracted filesystem from the archive. Present when the archive
+	/// contained `surrealism/fs/` entries.
+	pub fs: Option<AttachedFs>,
 }
 
 /// Options controlling how `from_reader` extracts filesystem entries.
@@ -139,38 +158,21 @@ impl SurrealismPackage {
 					ExportsManifest::parse(&buffer)
 						.prefix_err(|| "Failed to parse exports.toml")?,
 				);
-			} else if let Some(rel) = entry_str.strip_prefix(FS_PREFIX) {
-				if rel.is_empty() || rel.ends_with('/') {
-					continue;
-				}
-				if entry.header().entry_type().is_dir() {
-					continue;
-				}
-
-				let rel_path = Path::new(rel);
-				if rel_path.components().any(|c| c == std::path::Component::ParentDir) {
-					return Err(SurrealismError::Other(anyhow::anyhow!(
-						"Path traversal detected in archive entry: {}",
-						entry_str
-					)));
-				}
-
+			} else if entry_str.starts_with(FS_PREFIX) {
 				if fs_dir.is_none() {
 					fs_dir = Some(create_temp_dir(opts)?);
 				}
-				let dir = fs_dir.as_ref().ok_or_else(|| {
-					SurrealismError::Other(anyhow::anyhow!("module fs temp dir not initialized"))
-				})?;
+				let dir = fs_dir.as_ref().expect("fs_dir just initialised");
 
-				let dest = dir.path().join(rel_path);
-				if let Some(parent) = dest.parent() {
-					fs::create_dir_all(parent)
-						.prefix_err(|| "Failed to create directory for fs entry")?;
+				let unpacked = entry
+					.unpack_in(dir.path())
+					.prefix_err(|| format!("Failed to unpack fs entry: {}", entry_str))?;
+				if !unpacked {
+					tracing::warn!(
+						entry = %entry_str,
+						"Skipped archive fs entry for safety"
+					);
 				}
-				let mut out_file = File::create(&dest)
-					.prefix_err(|| format!("Failed to create fs file: {}", rel))?;
-				std::io::copy(&mut entry, &mut out_file)
-					.prefix_err(|| format!("Failed to write fs file: {}", rel))?;
 			}
 		}
 
@@ -182,11 +184,19 @@ impl SurrealismPackage {
 
 		verify_component(&wasm)?;
 
+		let fs = fs_dir.map(|dir| {
+			let root = dir.path().join(FS_PREFIX.trim_end_matches('/'));
+			AttachedFs {
+				_dir: dir,
+				root,
+			}
+		});
+
 		Ok(SurrealismPackage {
 			config,
 			wasm,
 			exports,
-			fs: fs_dir,
+			fs,
 		})
 	}
 

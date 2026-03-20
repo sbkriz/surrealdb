@@ -75,7 +75,20 @@ fn module_scoped_capabilities(
 			caps = caps.with_functions(Targets::None);
 		}
 		FunctionTargets::Some(patterns) => {
-			let targets = patterns.iter().filter_map(|p| FuncTarget::from_str(p).ok()).collect();
+			let targets = patterns
+				.iter()
+				.filter_map(|p| match FuncTarget::from_str(p) {
+					Ok(t) => Some(t),
+					Err(e) => {
+						tracing::warn!(
+							pattern = %p,
+							error = %e,
+							"Ignoring unparseable function target pattern"
+						);
+						None
+					}
+				})
+				.collect();
 			caps = caps.with_functions(Targets::Some(targets));
 		}
 		FunctionTargets::All => {}
@@ -84,7 +97,21 @@ fn module_scoped_capabilities(
 	if module.allow_net.is_empty() {
 		caps = caps.with_network_targets(Targets::None);
 	} else {
-		let targets = module.allow_net.iter().filter_map(|n| NetTarget::from_str(n).ok()).collect();
+		let targets = module
+			.allow_net
+			.iter()
+			.filter_map(|n| match NetTarget::from_str(n) {
+				Ok(t) => Some(t),
+				Err(e) => {
+					tracing::warn!(
+						pattern = %n,
+						error = %e,
+						"Ignoring unparseable network target pattern"
+					);
+					None
+				}
+			})
+			.collect();
 		caps = caps.with_network_targets(Targets::Some(targets));
 	}
 

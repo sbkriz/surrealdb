@@ -87,7 +87,7 @@ impl BTreeMapStore {
 
 	fn check_value_size(&self, value: &surrealdb_types::Value) -> Result<()> {
 		if let Some(max_bytes) = self.max_value_bytes {
-			let size = surrealdb_types::encode(value).map(|b| b.len()).unwrap_or(0);
+			let size = surrealdb_types::encode(value)?.len();
 			if size > max_bytes {
 				anyhow::bail!("KV value size ({size} bytes) exceeds limit ({max_bytes} bytes)");
 			}
@@ -165,7 +165,13 @@ impl KVStore for BTreeMapStore {
 			self.check_value_size(value)?;
 		}
 		let mut map = self.inner.write();
-		let new_keys = entries.iter().filter(|(k, _)| !map.contains_key(k)).count();
+		let new_keys = entries
+			.iter()
+			.map(|(k, _)| k.as_str())
+			.collect::<std::collections::HashSet<_>>()
+			.into_iter()
+			.filter(|k| !map.contains_key(*k))
+			.count();
 		self.check_entry_count(&map, new_keys)?;
 		for (key, value) in entries {
 			map.insert(key, value);
