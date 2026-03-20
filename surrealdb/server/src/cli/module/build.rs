@@ -15,7 +15,10 @@ use wasm_opt::OptimizationOptions;
 /// Build a Surrealism WASM module from a Rust project, optimize the binary,
 /// and pack it into a `.surrealism` package file.
 pub async fn init(path: Option<PathBuf>, out: Option<PathBuf>, debug: bool) -> Result<()> {
-	let path = path.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+	let path = match path {
+		Some(p) => p,
+		None => std::env::current_dir().prefix_err(|| "Failed to determine current directory")?,
+	};
 	let config = load_config(&path)?;
 
 	if config.target != Target::Rust {
@@ -437,13 +440,15 @@ fn resolve_attach_fs(project_root: &Path, config: &SurrealismConfig) -> Result<O
 /// Resolve the output path for the `.surrealism` package, defaulting to
 /// `<package_name>.surrealism` in the current working directory.
 fn resolve_output_path(out: Option<PathBuf>, config: &SurrealismConfig) -> Result<PathBuf> {
+	let cwd =
+		|| std::env::current_dir().prefix_err(|| "Failed to determine current directory");
 	match out {
-		None => Ok(std::env::current_dir().unwrap_or_default().join(config.file_name())),
+		None => Ok(cwd()?.join(config.file_name())),
 		Some(out_path) => {
 			if out_path.is_absolute() {
 				Ok(out_path)
 			} else {
-				Ok(std::env::current_dir().unwrap_or_default().join(out_path))
+				Ok(cwd()?.join(out_path))
 			}
 		}
 	}

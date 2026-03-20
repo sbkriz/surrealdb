@@ -15,14 +15,13 @@ fn extract_doc_comment(attrs: &[syn::Attribute]) -> Option<String> {
 			if !attr.path().is_ident("doc") {
 				return None;
 			}
-			if let Meta::NameValue(nv) = &attr.meta {
-				if let Expr::Lit(ExprLit {
+			if let Meta::NameValue(nv) = &attr.meta
+				&& let Expr::Lit(ExprLit {
 					lit: Lit::Str(s),
 					..
 				}) = &nv.value
-				{
-					return Some(s.value());
-				}
+			{
+				return Some(s.value());
 			}
 			None
 		})
@@ -124,10 +123,14 @@ pub(crate) fn handle_module(
 
 	let prefix = export_name_override.unwrap_or_else(|| item_mod.ident.to_string());
 
-	let (brace, items) = item_mod
-		.content
-		.take()
-		.expect("#[surrealism] on mod requires an inline module body (mod foo { ... })");
+	let Some((brace, items)) = item_mod.content.take() else {
+		return syn::Error::new_spanned(
+			&item_mod.ident,
+			"#[surrealism] on mod requires an inline module body (mod foo { ... })",
+		)
+		.to_compile_error()
+		.into();
+	};
 
 	let (new_items, sentinels) = process_mod_items(&prefix, items);
 
@@ -149,13 +152,19 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 
 	for mut item in items {
 		match &mut item {
-			Item::Fn(fn_item) => {
-				if let Some(idx) =
-					fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
-				{
-					let attr = fn_item.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
-						parse_surrealism_attr(&attr);
+		Item::Fn(fn_item) => {
+			if let Some(idx) =
+				fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
+			{
+				let attr = fn_item.attrs.remove(idx);
+				let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
+					match parse_surrealism_attr(&attr) {
+						Ok(v) => v,
+						Err(e) => {
+							new_items.push(Item::Verbatim(e.to_compile_error()));
+							continue;
+						}
+					};
 
 					if inner_init {
 						panic!("#[surrealism(init)] cannot be used inside a module");
@@ -208,33 +217,46 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					continue;
 				}
 			}
-			Item::Mod(inner_mod) => {
-				if let Some(idx) =
-					inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
-				{
-					let attr = inner_mod.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable, _) =
-						parse_surrealism_attr(&attr);
+		Item::Mod(inner_mod) => {
+			if let Some(idx) =
+				inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
+			{
+				let attr = inner_mod.attrs.remove(idx);
+				let (inner_default, inner_name, inner_init, inner_writeable, _) =
+					match parse_surrealism_attr(&attr) {
+						Ok(v) => v,
+						Err(e) => {
+							new_items.push(Item::Verbatim(e.to_compile_error()));
+							continue;
+						}
+					};
 
-					if inner_default {
-						panic!("#[surrealism(default)] cannot be used on a module");
-					}
-					if inner_init {
-						panic!("#[surrealism(init)] cannot be used on a module");
-					}
-					if inner_writeable {
-						panic!(
-							"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
-						);
-					}
-
-					let inner_prefix_segment =
-						inner_name.unwrap_or_else(|| inner_mod.ident.to_string());
-					let inner_prefix = format!("{prefix}::{inner_prefix_segment}");
-
-					let (brace, inner_items) = inner_mod.content.take().expect(
-						"#[surrealism] on mod requires an inline module body (mod foo { ... })",
+				if inner_default {
+					panic!("#[surrealism(default)] cannot be used on a module");
+				}
+				if inner_init {
+					panic!("#[surrealism(init)] cannot be used on a module");
+				}
+				if inner_writeable {
+					panic!(
+						"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
 					);
+				}
+
+				let inner_prefix_segment =
+					inner_name.unwrap_or_else(|| inner_mod.ident.to_string());
+				let inner_prefix = format!("{prefix}::{inner_prefix_segment}");
+
+				let Some((brace, inner_items)) = inner_mod.content.take() else {
+					new_items.push(Item::Verbatim(
+						syn::Error::new_spanned(
+							&inner_mod.ident,
+							"#[surrealism] on mod requires an inline module body (mod foo { ... })",
+						)
+						.to_compile_error(),
+					));
+					continue;
+				};
 
 					let (processed_items, inner_sentinels) =
 						process_mod_items(&inner_prefix, inner_items);

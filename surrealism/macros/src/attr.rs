@@ -76,19 +76,22 @@ pub(crate) fn parse_surrealism_attrs(
 
 /// Parse surrealism attribute arguments from a `syn::Attribute` (used when
 /// stripping inner attributes inside a mod).
+///
+/// Returns `Ok(...)` on success or a `syn::Error` that the caller should
+/// convert to a compile error via `to_compile_error()`.
 pub(crate) fn parse_surrealism_attr(
 	attr: &Attribute,
-) -> (bool, Option<String>, bool, bool, Option<String>) {
+) -> syn::Result<(bool, Option<String>, bool, bool, Option<String>)> {
 	match &attr.meta {
-		Meta::Path(_) => (false, None, false, false, None),
+		Meta::Path(_) => Ok((false, None, false, false, None)),
 		Meta::List(list) => {
-			let args: Punctuated<Meta, Comma> = list
-				.parse_args_with(Punctuated::parse_terminated)
-				.expect("failed to parse inner #[surrealism(...)] attribute");
-			parse_surrealism_attrs(&args)
+			let args: Punctuated<Meta, Comma> =
+				list.parse_args_with(Punctuated::parse_terminated)?;
+			Ok(parse_surrealism_attrs(&args))
 		}
-		Meta::NameValue(_) => {
-			panic!("#[surrealism] does not support top-level name = value syntax")
-		}
+		Meta::NameValue(nv) => Err(syn::Error::new_spanned(
+			nv,
+			"#[surrealism] does not support top-level name = value syntax",
+		)),
 	}
 }

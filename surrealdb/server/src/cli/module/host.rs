@@ -70,7 +70,7 @@ impl InvocationContext for DemoHost {
 		version: Option<String>,
 		args: Vec<surrealdb_types::Value>,
 	) -> Result<surrealdb_types::Value> {
-		let version = version.map(|x| format!("<{x}>")).unwrap_or_default();
+		let version = version.map(|x| format!("<{x}>")).unwrap_or_else(String::new);
 		println!("The module is running a function:");
 		println!(
 			" - {fnc}{version}({})",

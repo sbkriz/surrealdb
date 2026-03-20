@@ -162,7 +162,9 @@ impl SurrealismPackage {
 				if fs_dir.is_none() {
 					fs_dir = Some(create_temp_dir(opts)?);
 				}
-				let dir = fs_dir.as_ref().expect("fs_dir just initialised");
+				let Some(dir) = fs_dir.as_ref() else {
+					unreachable!("fs_dir is always Some after the block above");
+				};
 
 				let unpacked = entry
 					.unpack_in(dir.path())

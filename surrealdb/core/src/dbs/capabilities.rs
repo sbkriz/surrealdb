@@ -822,6 +822,12 @@ impl Capabilities {
 		self.allow_funcs.matches(target) && !self.deny_funcs.matches(target)
 	}
 
+	/// Check whether a parsed `FuncTarget` (possibly a wildcard like `fn::*`)
+	/// is covered by the server's function capability configuration.
+	pub fn allows_function_target(&self, target: &FuncTarget) -> bool {
+		self.allow_funcs.matches(target) && !self.deny_funcs.matches(target)
+	}
+
 	pub fn allows_experimental(&self, target: &ExperimentalTarget) -> bool {
 		self.allow_experimental.matches(target) && !self.deny_experimental.matches(target)
 	}
@@ -873,22 +879,22 @@ impl Capabilities {
 		match &capabilities.allow_functions {
 			FunctionTargets::None => {}
 			FunctionTargets::All => {
-				// Module wants to call any function -- the server must allow
-				// at least something. We cannot validate every possible function
-				// name here, so we just log the intent.
-				tracing::debug!("Surrealism package declares allow_functions = [\"*\"]");
+				if matches!(self.allow_funcs, Targets::None) {
+					bail!(
+						"Surrealism package requires access to all functions, but the server allows none"
+					);
+				}
 			}
 			FunctionTargets::Some(patterns) => {
 				for pattern in patterns {
-					// For family wildcards like "http::*" or "http", we check
-					// a representative name to see if the family is allowed.
-					// For specific functions like "fn::user_exists", check directly.
-					let representative = if pattern.ends_with("::*") || !pattern.contains("::") {
-						format!("{}::__check", pattern.strip_suffix("::*").unwrap_or(pattern))
-					} else {
-						pattern.clone()
-					};
-					if !self.allows_function_name(&representative) {
+					let target = FuncTarget::from_str(pattern).map_err(|e| {
+						anyhow::anyhow!(
+							"Surrealism package has invalid function pattern '{}': {}",
+							pattern,
+							e
+						)
+					})?;
+					if !self.allows_function_target(&target) {
 						bail!(
 							"Surrealism package requires function pattern '{}', but it is not allowed by the server",
 							pattern
