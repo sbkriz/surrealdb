@@ -144,6 +144,11 @@ world plugin {
     /// Return the declared return type for the given function.
     export function-returns: func(name: option<string>) -> result<serialized-kind, string>;
 
+    /// Return whether the given function is marked as writeable.
+    /// Functions that are not writeable are treated as read-only by the host,
+    /// enabling optimizations such as read-only transactions and parallel execution.
+    export function-writeable: func(name: option<string>) -> result<bool, string>;
+
     /// Optional initialization hook called once after instantiation.
     ///
     /// If this returns an error, the host marks the module as failed and will

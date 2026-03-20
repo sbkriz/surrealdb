@@ -22,6 +22,7 @@ pub(crate) fn generate_registration_body(
 	is_result: bool,
 	is_init: bool,
 	export_name: Option<&str>,
+	writeable: bool,
 ) -> proc_macro2::TokenStream {
 	if is_init {
 		let init_call = if is_result {
@@ -89,6 +90,7 @@ pub(crate) fn generate_registration_body(
 				invoke: #invoke_ident,
 				args: #args_ident,
 				returns: #returns_ident,
+				writeable: #writeable,
 			});
 		}
 	}

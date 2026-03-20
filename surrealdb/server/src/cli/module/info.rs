@@ -19,7 +19,12 @@ pub async fn init(file: PathBuf) -> Result<()> {
 			Some(n) => format!("<mod>::{n}"),
 		};
 
-		println!("- {name}({}) -> {}", export.args_display(), export.returns_display());
+		let mode = if export.writeable {
+			"writeable"
+		} else {
+			"readonly"
+		};
+		println!("- {name}({}) -> {} [{mode}]", export.args_display(), export.returns_display());
 	}
 
 	Ok(())

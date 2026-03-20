@@ -165,6 +165,78 @@ impl<'ctx> Planner<'ctx> {
 		self.function_registry
 	}
 
+	/// Resolve the `writeable` flag for a Surrealism module function from
+	/// the cached runtime's exports manifest. Returns `false` (read-only)
+	/// when the lookup cannot be performed (no txn, module not cached, etc.).
+	#[cfg(feature = "surrealism")]
+	async fn resolve_module_writeable(&self, module: &str, sub: Option<&str>) -> bool {
+		use crate::catalog::providers::DatabaseProvider;
+		use crate::expr::module::ModuleExecutable;
+
+		let Some(txn) = &self.txn else {
+			return false;
+		};
+		let (Some(ns), Some(db)) = (&self.ns, &self.db) else {
+			return false;
+		};
+		let Ok(Some(db_def)) = txn.get_db_by_name(ns, db).await else {
+			return false;
+		};
+		let mod_name = format!("mod::{module}");
+		let Ok(val) = txn.get_db_module(db_def.namespace_id, db_def.database_id, &mod_name).await
+		else {
+			return false;
+		};
+		let executable: ModuleExecutable = val.executable.clone().into();
+		executable
+			.signature(self.ctx, &db_def.namespace_id, &db_def.database_id, sub)
+			.await
+			.map(|sig| sig.writeable)
+			.unwrap_or(false)
+	}
+
+	#[cfg(not(feature = "surrealism"))]
+	async fn resolve_module_writeable(&self, _module: &str, _sub: Option<&str>) -> bool {
+		false
+	}
+
+	/// Resolve the `writeable` flag for a Silo package function from
+	/// the cached runtime's exports manifest.
+	#[cfg(feature = "surrealism")]
+	async fn resolve_silo_writeable(
+		&self,
+		org: &str,
+		pkg: &str,
+		major: u32,
+		minor: u32,
+		patch: u32,
+		sub: Option<&str>,
+	) -> bool {
+		use crate::expr::module::SiloExecutable;
+
+		let executable = SiloExecutable {
+			organisation: org.to_string(),
+			package: pkg.to_string(),
+			major,
+			minor,
+			patch,
+		};
+		executable.signature(self.ctx, sub).await.map(|sig| sig.writeable).unwrap_or(false)
+	}
+
+	#[cfg(not(feature = "surrealism"))]
+	async fn resolve_silo_writeable(
+		&self,
+		_org: &str,
+		_pkg: &str,
+		_major: u32,
+		_minor: u32,
+		_patch: u32,
+		_sub: Option<&str>,
+	) -> bool {
+		false
+	}
+
 	// ========================================================================
 	// Top-Level Planning
 	// ========================================================================
@@ -590,10 +662,12 @@ impl<'ctx> Planner<'ctx> {
 			}
 			Function::Module(module, sub) => {
 				let arguments = self.physical_args(arguments).await?;
+				let writeable = self.resolve_module_writeable(&module, sub.as_deref()).await;
 				Ok(Arc::new(SurrealismModuleExec {
 					module,
 					sub,
 					arguments,
+					writeable,
 				}))
 			}
 			Function::Silo {
@@ -605,6 +679,9 @@ impl<'ctx> Planner<'ctx> {
 				sub,
 			} => {
 				let arguments = self.physical_args(arguments).await?;
+				let writeable = self
+					.resolve_silo_writeable(&org, &pkg, major, minor, patch, sub.as_deref())
+					.await;
 				Ok(Arc::new(SiloModuleExec {
 					org,
 					pkg,
@@ -613,6 +690,7 @@ impl<'ctx> Planner<'ctx> {
 					patch,
 					sub,
 					arguments,
+					writeable,
 				}))
 			}
 		}

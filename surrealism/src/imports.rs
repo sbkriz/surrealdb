@@ -91,7 +91,7 @@ pub mod kv {
 	fn encode_range<R: RangeBounds<String>>(range: R) -> Result<Vec<u8>> {
 		let start = range.start_bound().cloned();
 		let end = range.end_bound().cloned();
-		surrealdb_types::encode_string_range(&start, &end).map_err(Into::into)
+		surrealdb_types::encode_string_range(&start, &end)
 	}
 
 	/// Delete a range of keys from the KV store.

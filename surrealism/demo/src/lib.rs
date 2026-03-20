@@ -16,7 +16,7 @@ struct User {
 	enabled: bool,
 }
 
-#[surrealism]
+#[surrealism(writeable)]
 fn create_user(user: User) -> Result<String> {
 	let exists: bool =
 		surrealism::run("fn::user_exists".to_string(), None, (user.name.clone(), user.age))?;

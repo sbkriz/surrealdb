@@ -10,6 +10,7 @@ pub(crate) fn handle_function(
 	is_default: bool,
 	export_name_override: Option<String>,
 	is_init: bool,
+	is_writeable: bool,
 	input_fn: ItemFn,
 ) -> TokenStream {
 	let fn_name = &input_fn.sig.ident;
@@ -46,6 +47,7 @@ pub(crate) fn handle_function(
 		is_result,
 		is_init,
 		export_name.as_deref(),
+		is_writeable,
 	);
 
 	let expanded = quote! {
@@ -62,6 +64,7 @@ pub(crate) fn handle_module(
 	is_default: bool,
 	export_name_override: Option<String>,
 	is_init: bool,
+	is_writeable: bool,
 	mut item_mod: ItemMod,
 ) -> TokenStream {
 	if is_default {
@@ -69,6 +72,11 @@ pub(crate) fn handle_module(
 	}
 	if is_init {
 		panic!("#[surrealism(init)] cannot be used on a module");
+	}
+	if is_writeable {
+		panic!(
+			"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
+		);
 	}
 
 	let prefix = export_name_override.unwrap_or_else(|| item_mod.ident.to_string());
@@ -103,7 +111,8 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
 					let attr = fn_item.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init) = parse_surrealism_attr(&attr);
+					let (inner_default, inner_name, inner_init, inner_writeable) =
+						parse_surrealism_attr(&attr);
 
 					if inner_init {
 						panic!("#[surrealism(init)] cannot be used inside a module");
@@ -119,8 +128,8 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					if export_name == "default" {
 						panic!(
 							"`default` is reserved for the default export; use \
-							 #[surrealism(default)] on the function that should be \
-							 the default export instead of naming it \"default\""
+						 #[surrealism(default)] on the function that should be \
+						 the default export instead of naming it \"default\""
 						);
 					}
 
@@ -145,6 +154,7 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 						is_result,
 						false,
 						Some(&export_name),
+						inner_writeable,
 					);
 
 					new_items.push(item);
@@ -157,13 +167,19 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
 					let attr = inner_mod.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init) = parse_surrealism_attr(&attr);
+					let (inner_default, inner_name, inner_init, inner_writeable) =
+						parse_surrealism_attr(&attr);
 
 					if inner_default {
 						panic!("#[surrealism(default)] cannot be used on a module");
 					}
 					if inner_init {
 						panic!("#[surrealism(init)] cannot be used on a module");
+					}
+					if inner_writeable {
+						panic!(
+							"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
+						);
 					}
 
 					let inner_prefix_segment =

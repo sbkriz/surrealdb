@@ -8,6 +8,7 @@ pub struct SurrealismEntry {
 	pub invoke: fn(&[u8]) -> Result<Vec<u8>, String>,
 	pub args: fn() -> Result<Vec<u8>, String>,
 	pub returns: fn() -> Result<Vec<u8>, String>,
+	pub writeable: bool,
 }
 
 /// Registered init function. Submitted by `#[surrealism(init)]`.

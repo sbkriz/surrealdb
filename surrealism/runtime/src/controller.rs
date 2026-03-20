@@ -33,6 +33,8 @@ pub struct Controller {
 	returns_fn: Option<component::Func>,
 	/// Only present when the module exports the `list-functions` function.
 	list_fn: Option<component::Func>,
+	/// Only present when the module exports the `function-writeable` function.
+	writeable_fn: Option<component::Func>,
 	init_fn: Option<component::Func>,
 	/// Effective execution time limit from module config + server cap (without
 	/// context timeout, which varies per invocation).
@@ -55,6 +57,7 @@ impl Controller {
 		args_fn: Option<component::Func>,
 		returns_fn: Option<component::Func>,
 		list_fn: Option<component::Func>,
+		writeable_fn: Option<component::Func>,
 		init_fn: Option<component::Func>,
 		module_execution_time: Option<Duration>,
 		epoch_counter: Arc<std::sync::atomic::AtomicU64>,
@@ -65,6 +68,7 @@ impl Controller {
 			args_fn,
 			returns_fn,
 			list_fn,
+			writeable_fn,
 			init_fn,
 			module_execution_time,
 			epoch_counter,
@@ -271,6 +275,30 @@ impl Controller {
 			}
 			Err(e) => {
 				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.returns(): WASM TRAP");
+				Err(self.trap_to_timeout(e))
+			}
+		}
+	}
+
+	/// Query whether a function is marked as writeable via the WASM export.
+	/// Only available when the module has the `function-writeable` export (build tool).
+	#[tracing::instrument(skip_all, fields(name))]
+	pub async fn writeable(&mut self, name: Option<String>) -> SurrealismResult<bool> {
+		let display_name = name.as_deref().unwrap_or("<default>");
+		tracing::debug!(name = %display_name, "controller.writeable(): calling function-writeable");
+		let func = self.writeable_fn.ok_or_else(|| {
+			SurrealismError::Other(anyhow::anyhow!("function-writeable export not available"))
+		})?;
+		self.apply_module_deadline();
+		let typed = func.typed::<(Option<&str>,), (Result<bool, String>,)>(&self.store)?;
+
+		match typed.call_async(&mut self.store, (name.as_deref(),)).await {
+			Ok((result,)) => {
+				tracing::debug!(name = %display_name, ok = result.is_ok(), "controller.writeable(): call_async completed");
+				result.map_err(SurrealismError::FunctionCallError)
+			}
+			Err(e) => {
+				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.writeable(): WASM TRAP");
 				Err(self.trap_to_timeout(e))
 			}
 		}

@@ -14,13 +14,14 @@ pub(crate) fn validate_export_name(val: &str) {
 	}
 }
 
-/// Returns `(is_default, export_name_override, is_init)`.
+/// Returns `(is_default, export_name_override, is_init, is_writeable)`.
 pub(crate) fn parse_surrealism_attrs(
 	args: &Punctuated<Meta, Comma>,
-) -> (bool, Option<String>, bool) {
+) -> (bool, Option<String>, bool, bool) {
 	let mut is_default = false;
 	let mut export_name_override: Option<String> = None;
 	let mut is_init = false;
+	let mut is_writeable = false;
 
 	for meta in args.iter() {
 		match meta {
@@ -45,21 +46,24 @@ pub(crate) fn parse_surrealism_attrs(
 			Meta::Path(path) if path.is_ident("init") => {
 				is_init = true;
 			}
+			Meta::Path(path) if path.is_ident("writeable") => {
+				is_writeable = true;
+			}
 			_ => panic!(
 				"Unsupported attribute: expected #[surrealism], #[surrealism(default)], \
-				 #[surrealism(init)], or #[surrealism(name = \"...\")]"
+				 #[surrealism(init)], #[surrealism(writeable)], or #[surrealism(name = \"...\")]"
 			),
 		}
 	}
 
-	(is_default, export_name_override, is_init)
+	(is_default, export_name_override, is_init, is_writeable)
 }
 
 /// Parse surrealism attribute arguments from a `syn::Attribute` (used when
 /// stripping inner attributes inside a mod).
-pub(crate) fn parse_surrealism_attr(attr: &Attribute) -> (bool, Option<String>, bool) {
+pub(crate) fn parse_surrealism_attr(attr: &Attribute) -> (bool, Option<String>, bool, bool) {
 	match &attr.meta {
-		Meta::Path(_) => (false, None, false),
+		Meta::Path(_) => (false, None, false, false),
 		Meta::List(list) => {
 			let args: Punctuated<Meta, Comma> = list
 				.parse_args_with(Punctuated::parse_terminated)

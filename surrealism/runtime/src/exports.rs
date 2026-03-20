@@ -25,6 +25,10 @@ pub struct FunctionExport {
 	pub args_text: Option<Vec<String>>,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub returns_text: Option<String>,
+	/// Whether this function may perform writes. Opt-in via `#[surrealism(writeable)]`.
+	/// Defaults to `false` (read-only) for backward compatibility.
+	#[serde(default)]
+	pub writeable: bool,
 }
 
 impl FunctionExport {
@@ -111,6 +115,7 @@ mod tests {
 					returns: Kind::Bool,
 					args_text: Some(vec!["int".to_string()]),
 					returns_text: Some("bool".to_string()),
+					writeable: false,
 				},
 				FunctionExport {
 					name: Some("foo::bar".to_string()),
@@ -118,6 +123,7 @@ mod tests {
 					returns: Kind::Object,
 					args_text: None,
 					returns_text: None,
+					writeable: true,
 				},
 			],
 		};
@@ -129,10 +135,12 @@ mod tests {
 		assert!(parsed.functions[0].name.is_none());
 		assert_eq!(parsed.functions[0].args, vec![Kind::Int]);
 		assert_eq!(parsed.functions[0].returns, Kind::Bool);
+		assert!(!parsed.functions[0].writeable);
 
 		assert_eq!(parsed.functions[1].name.as_deref(), Some("foo::bar"));
 		assert_eq!(parsed.functions[1].args.len(), 2);
 		assert_eq!(parsed.functions[1].returns, Kind::Object);
+		assert!(parsed.functions[1].writeable);
 	}
 
 	#[test]
@@ -144,6 +152,7 @@ mod tests {
 				returns: Kind::Bool,
 				args_text: None,
 				returns_text: None,
+				writeable: false,
 			}],
 		};
 

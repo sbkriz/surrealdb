@@ -92,6 +92,7 @@ impl ToSql for ModuleExecutable {
 pub(crate) struct Signature {
 	pub(crate) args: Vec<Kind>,
 	pub(crate) returns: Option<Kind>,
+	pub(crate) writeable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -297,6 +298,7 @@ fn signature_from_runtime(
 	Ok(Signature {
 		args: export.args.iter().cloned().map(|x| x.into()).collect(),
 		returns: Some(export.returns.clone().into()),
+		writeable: export.writeable,
 	})
 }
 

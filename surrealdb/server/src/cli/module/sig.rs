@@ -13,8 +13,13 @@ pub async fn init(file: PathBuf, fnc: Option<String>) -> Result<()> {
 		anyhow::anyhow!("function '{name}' not found in exports manifest")
 	})?;
 
+	let mode = if export.writeable {
+		"writeable"
+	} else {
+		"readonly"
+	};
 	println!(
-		"\nSignature:\n - {}({}) -> {}",
+		"\nSignature:\n - {}({}) -> {} [{mode}]",
 		fnc.as_deref().unwrap_or("<default>"),
 		export.args_display(),
 		export.returns_display()
