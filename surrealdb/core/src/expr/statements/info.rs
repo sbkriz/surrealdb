@@ -167,21 +167,21 @@ impl InfoStatement {
 				// Get the transaction
 				let txn = ctx.tx();
 				// Create the result set
-				let res = if *structured {
-					let object = map! {
-						"accesses".to_string() => process(txn.all_db_accesses(ns, db).await?),
-						"apis".to_string() => process(txn.all_db_apis(ns, db).await?),
-						"analyzers".to_string() => process(txn.all_db_analyzers(ns, db).await?),
-						"buckets".to_string() => process(txn.all_db_buckets(ns, db).await?),
-						"functions".to_string() => process(txn.all_db_functions(ns, db).await?),
-						"modules".to_string() => process(txn.all_db_modules(ns, db).await?),
-						"models".to_string() => process(txn.all_db_models(ns, db).await?),
-						"params".to_string() => process(txn.all_db_params(ns, db).await?),
-						"tables".to_string() => process(txn.all_tb(ns, db, version).await?),
-						"users".to_string() => process(txn.all_db_users(ns, db).await?),
-						"configs".to_string() => process(txn.all_db_configs(ns, db).await?),
-						"sequences".to_string() => process(txn.all_db_sequences(ns, db).await?),
-					};
+			let res = if *structured {
+				let object = map! {
+					"accesses".to_string() => process(txn.all_db_accesses(ns, db).await?),
+					"apis".to_string() => process(txn.all_db_apis(ns, db).await?),
+					"analyzers".to_string() => process(txn.all_db_analyzers(ns, db).await?),
+					"buckets".to_string() => process(txn.all_db_buckets(ns, db).await?),
+					"functions".to_string() => process(txn.all_db_functions(ns, db).await?),
+					"modules".to_string() => process_modules(ctx, ns, db, txn.all_db_modules(ns, db).await?).await,
+					"models".to_string() => process(txn.all_db_models(ns, db).await?),
+					"params".to_string() => process(txn.all_db_params(ns, db).await?),
+					"tables".to_string() => process(txn.all_tb(ns, db, version).await?),
+					"users".to_string() => process(txn.all_db_users(ns, db).await?),
+					"configs".to_string() => process(txn.all_db_configs(ns, db).await?),
+					"sequences".to_string() => process(txn.all_db_sequences(ns, db).await?),
+				};
 					Value::Object(Object(object))
 				} else {
 					let object = map! {
@@ -439,4 +439,80 @@ async fn system() -> Value {
 		"physical_cores".to_string() => info.physical_cores.into(),
 		"memory_allocated".to_string() => info.memory_allocated.into(),
 	})
+}
+
+#[cfg(feature = "surrealism")]
+async fn get_module_exports(
+	ctx: &FrozenContext,
+	ns: &crate::catalog::NamespaceId,
+	db: &crate::catalog::DatabaseId,
+	executable: &crate::catalog::ModuleExecutable,
+) -> Option<Value> {
+	use crate::catalog::ModuleExecutable;
+	use crate::surrealism::cache::SurrealismCacheLookup;
+
+	let lookup = match executable {
+		ModuleExecutable::Surrealism(s) => {
+			SurrealismCacheLookup::File(ns, db, &s.bucket, &s.key)
+		}
+		ModuleExecutable::Silo(s) => {
+			SurrealismCacheLookup::Silo(&s.organisation, &s.package, s.major, s.minor, s.patch)
+		}
+	};
+
+	let runtime = match ctx.get_surrealism_runtime(lookup).await {
+		Ok(r) => r,
+		Err(e) => {
+			tracing::trace!("Could not load module runtime for exports: {e}");
+			return None;
+		}
+	};
+
+	let exports = runtime.exports();
+	let values: Vec<Value> = exports
+		.functions
+		.iter()
+		.map(|f| {
+			let mut obj = Object::default();
+			if let Some(name) = &f.name {
+				obj.insert("name".to_string(), Value::from(name.clone()));
+			}
+			obj.insert(
+				"args".to_string(),
+				Value::Array(f.args.iter().map(|a| Value::from(format!("{a}"))).collect()),
+			);
+			obj.insert("returns".to_string(), Value::from(format!("{}", f.returns)));
+			obj.insert("writeable".to_string(), Value::from(f.writeable));
+			Value::Object(obj)
+		})
+		.collect();
+
+	Some(Value::Array(values.into()))
+}
+
+/// Process module definitions into structured Values, enriching each with
+/// export signatures from the cached surrealism runtime when available.
+pub(crate) async fn process_modules(
+	ctx: &FrozenContext,
+	ns: crate::catalog::NamespaceId,
+	db: crate::catalog::DatabaseId,
+	modules: Arc<[crate::catalog::ModuleDefinition]>,
+) -> Value {
+	let mut values = Vec::with_capacity(modules.len());
+	for module in modules.iter() {
+		#[allow(unused_mut)]
+		let mut val = module.clone().structure();
+		#[cfg(feature = "surrealism")]
+		if let Value::Object(ref mut obj) = val {
+			if let Some(exports) =
+				get_module_exports(ctx, &ns, &db, &module.executable).await
+			{
+				obj.insert("exports".to_string(), exports);
+			}
+		}
+		values.push(val);
+	}
+	#[cfg(not(feature = "surrealism"))]
+	let _ = (ctx, ns, db);
+	Value::Array(values.into())
 }

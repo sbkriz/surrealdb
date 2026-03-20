@@ -831,6 +831,59 @@ mod surrealism_integration {
 		check_error_propagation(&DEMO_DIR.canonical).await
 	}
 
+	async fn check_info_db_structure_exports(
+		bucket_dir: &Path,
+	) -> Result<(), Box<dyn std::error::Error>> {
+		let (addr, _server) = start_surrealism_server(bucket_dir).await?;
+		let ns = Ulid::new().to_string();
+		let db = Ulid::new().to_string();
+
+		setup_module(&addr, &ns, &db, bucket_dir).await;
+
+		let results = sql_query(&addr, &ns, &db, "INFO FOR DB STRUCTURE;").await;
+		assert_eq!(results[0].status, "OK", "INFO FOR DB STRUCTURE: {:?}", results[0].result);
+
+		let db_info = &results[0].result;
+		let modules = db_info["modules"].as_array().expect("modules should be an array");
+		assert!(!modules.is_empty(), "at least one module should be defined");
+
+		let module = &modules[0];
+		assert_eq!(module["name"], "demo");
+
+		let exports = module["exports"].as_array().expect("exports should be an array");
+		assert!(!exports.is_empty(), "demo module should have exports");
+
+		// The default export has no "name" key in its object
+		let default_export =
+			exports.iter().find(|e| !e.as_object().unwrap().contains_key("name"));
+		assert!(default_export.is_some(), "default export should be present");
+
+		// Named export: can_drive should be read-only
+		let can_drive = exports.iter().find(|e| e["name"] == "can_drive");
+		assert!(can_drive.is_some(), "can_drive should be in exports");
+		assert_eq!(can_drive.unwrap()["writeable"], false);
+
+		// Named export: create_user should be writeable
+		let create_user = exports.iter().find(|e| e["name"] == "create_user");
+		assert!(create_user.is_some(), "create_user should be in exports");
+		assert_eq!(create_user.unwrap()["writeable"], true);
+
+		// Every export should have args, returns, and writeable keys
+		for export in exports {
+			let obj = export.as_object().expect("each export should be an object");
+			assert!(obj.contains_key("args"), "export should have args: {export:?}");
+			assert!(obj.contains_key("returns"), "export should have returns: {export:?}");
+			assert!(obj.contains_key("writeable"), "export should have writeable: {export:?}");
+		}
+
+		Ok(())
+	}
+
+	#[test(tokio::test)]
+	async fn module_info_db_structure_exports() -> Result<(), Box<dyn std::error::Error>> {
+		check_info_db_structure_exports(&DEMO_DIR.canonical).await
+	}
+
 	// -------------------------------------------------------------------
 	// Pack/unpack round-trip test (unit-level, no server needed)
 	// -------------------------------------------------------------------
