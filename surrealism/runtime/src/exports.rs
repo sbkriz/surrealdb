@@ -29,6 +29,10 @@ pub struct FunctionExport {
 	/// Defaults to `false` (read-only) for backward compatibility.
 	#[serde(default)]
 	pub writeable: bool,
+	/// Human-readable comment for this function, aligned with SurrealQL's `COMMENT`
+	/// clause. Sourced from Rust doc comments or `#[surrealism(comment = "...")]`.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub comment: Option<String>,
 }
 
 impl FunctionExport {
@@ -116,6 +120,7 @@ mod tests {
 					args_text: Some(vec!["int".to_string()]),
 					returns_text: Some("bool".to_string()),
 					writeable: false,
+					comment: Some("Checks whether a value is valid.".to_string()),
 				},
 				FunctionExport {
 					name: Some("foo::bar".to_string()),
@@ -124,6 +129,7 @@ mod tests {
 					args_text: None,
 					returns_text: None,
 					writeable: true,
+					comment: None,
 				},
 			],
 		};
@@ -136,11 +142,16 @@ mod tests {
 		assert_eq!(parsed.functions[0].args, vec![Kind::Int]);
 		assert_eq!(parsed.functions[0].returns, Kind::Bool);
 		assert!(!parsed.functions[0].writeable);
+		assert_eq!(
+			parsed.functions[0].comment.as_deref(),
+			Some("Checks whether a value is valid.")
+		);
 
 		assert_eq!(parsed.functions[1].name.as_deref(), Some("foo::bar"));
 		assert_eq!(parsed.functions[1].args.len(), 2);
 		assert_eq!(parsed.functions[1].returns, Kind::Object);
 		assert!(parsed.functions[1].writeable);
+		assert!(parsed.functions[1].comment.is_none());
 	}
 
 	#[test]
@@ -153,6 +164,7 @@ mod tests {
 				args_text: None,
 				returns_text: None,
 				writeable: false,
+				comment: None,
 			}],
 		};
 

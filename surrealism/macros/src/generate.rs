@@ -23,6 +23,7 @@ pub(crate) fn generate_registration_body(
 	is_init: bool,
 	export_name: Option<&str>,
 	writeable: bool,
+	comment: Option<&str>,
 ) -> proc_macro2::TokenStream {
 	if is_init {
 		let init_call = if is_result {
@@ -52,6 +53,11 @@ pub(crate) fn generate_registration_body(
 		};
 
 		let name_expr = match export_name {
+			None => quote! { None },
+			Some(s) => quote! { Some(#s) },
+		};
+
+		let comment_expr = match comment {
 			None => quote! { None },
 			Some(s) => quote! { Some(#s) },
 		};
@@ -87,6 +93,7 @@ pub(crate) fn generate_registration_body(
 
 			surrealism::inventory::submit!(surrealism::SurrealismEntry {
 				name: #name_expr,
+				comment: #comment_expr,
 				invoke: #invoke_ident,
 				args: #args_ident,
 				returns: #returns_ident,

@@ -25,6 +25,9 @@ pub async fn init(file: PathBuf) -> Result<()> {
 			"readonly"
 		};
 		println!("- {name}({}) -> {} [{mode}]", export.args_display(), export.returns_display());
+		if let Some(comment) = &export.comment {
+			println!("  COMMENT: {comment}");
+		}
 	}
 
 	Ok(())

@@ -854,8 +854,7 @@ mod surrealism_integration {
 		assert!(!exports.is_empty(), "demo module should have exports");
 
 		// The default export has no "name" key in its object
-		let default_export =
-			exports.iter().find(|e| !e.as_object().unwrap().contains_key("name"));
+		let default_export = exports.iter().find(|e| !e.as_object().unwrap().contains_key("name"));
 		assert!(default_export.is_some(), "default export should be present");
 
 		// Named export: can_drive should be read-only

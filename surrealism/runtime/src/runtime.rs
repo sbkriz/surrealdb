@@ -388,6 +388,7 @@ impl Runtime {
 		let returns_fn = instance.get_func(&mut store, "function-returns");
 		let list_fn = instance.get_func(&mut store, "list-functions");
 		let writeable_fn = instance.get_func(&mut store, "function-writeable");
+		let comment_fn = instance.get_func(&mut store, "function-comment");
 		let init_fn = instance.get_func(&mut store, "init");
 
 		tracing::debug!(
@@ -397,6 +398,7 @@ impl Runtime {
 			has_returns = returns_fn.is_some(),
 			has_list = list_fn.is_some(),
 			has_writeable = writeable_fn.is_some(),
+			has_comment = comment_fn.is_some(),
 			has_init = init_fn.is_some(),
 			"new_controller: export lookup"
 		);
@@ -409,6 +411,7 @@ impl Runtime {
 			returns_fn,
 			list_fn,
 			writeable_fn,
+			comment_fn,
 			init_fn,
 			self.module_execution_time,
 			self.engine_handle.epoch_counter().clone(),

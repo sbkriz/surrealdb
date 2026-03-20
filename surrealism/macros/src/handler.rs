@@ -1,22 +1,63 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Item, ItemFn, ItemMod};
+use syn::{Expr, ExprLit, Item, ItemFn, ItemMod, Lit, Meta};
 
 use crate::attr::parse_surrealism_attr;
 use crate::extract::extract_fn_signature;
 use crate::generate::{generate_registration_body, generate_sentinel};
+
+/// Collect `#[doc = "..."]` attributes (i.e. `///` doc comments) into a single
+/// trimmed string. Returns `None` when no doc comments are present.
+fn extract_doc_comment(attrs: &[syn::Attribute]) -> Option<String> {
+	let lines: Vec<String> = attrs
+		.iter()
+		.filter_map(|attr| {
+			if !attr.path().is_ident("doc") {
+				return None;
+			}
+			if let Meta::NameValue(nv) = &attr.meta {
+				if let Expr::Lit(ExprLit {
+					lit: Lit::Str(s),
+					..
+				}) = &nv.value
+				{
+					return Some(s.value());
+				}
+			}
+			None
+		})
+		.collect();
+	if lines.is_empty() {
+		return None;
+	}
+	let text = lines
+		.iter()
+		.map(|l| l.strip_prefix(' ').unwrap_or(l))
+		.collect::<Vec<_>>()
+		.join("\n")
+		.trim()
+		.to_string();
+	if text.is_empty() {
+		None
+	} else {
+		Some(text)
+	}
+}
 
 pub(crate) fn handle_function(
 	is_default: bool,
 	export_name_override: Option<String>,
 	is_init: bool,
 	is_writeable: bool,
+	explicit_comment: Option<String>,
 	input_fn: ItemFn,
 ) -> TokenStream {
 	let fn_name = &input_fn.sig.ident;
 	let fn_vis = &input_fn.vis;
 	let fn_sig = &input_fn.sig;
 	let fn_block = &input_fn.block;
+
+	let comment = explicit_comment.or_else(|| extract_doc_comment(&input_fn.attrs));
 
 	let (arg_patterns, tuple_type, tuple_pattern, result_type, is_result) =
 		match extract_fn_signature(fn_sig) {
@@ -48,6 +89,7 @@ pub(crate) fn handle_function(
 		is_init,
 		export_name.as_deref(),
 		is_writeable,
+		comment.as_deref(),
 	);
 
 	let expanded = quote! {
@@ -65,6 +107,7 @@ pub(crate) fn handle_module(
 	export_name_override: Option<String>,
 	is_init: bool,
 	is_writeable: bool,
+	_explicit_comment: Option<String>,
 	mut item_mod: ItemMod,
 ) -> TokenStream {
 	if is_default {
@@ -111,7 +154,7 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
 					let attr = fn_item.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable) =
+					let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
 						parse_surrealism_attr(&attr);
 
 					if inner_init {
@@ -128,10 +171,12 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					if export_name == "default" {
 						panic!(
 							"`default` is reserved for the default export; use \
-						 #[surrealism(default)] on the function that should be \
-						 the default export instead of naming it \"default\""
+					 #[surrealism(default)] on the function that should be \
+					 the default export instead of naming it \"default\""
 						);
 					}
+
+					let comment = explicit_comment.or_else(|| extract_doc_comment(&fn_item.attrs));
 
 					let fn_name = &fn_item.sig.ident;
 					let (arg_patterns, tuple_type, tuple_pattern, result_type, is_result) =
@@ -155,6 +200,7 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 						false,
 						Some(&export_name),
 						inner_writeable,
+						comment.as_deref(),
 					);
 
 					new_items.push(item);

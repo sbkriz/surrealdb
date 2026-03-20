@@ -14,14 +14,15 @@ pub(crate) fn validate_export_name(val: &str) {
 	}
 }
 
-/// Returns `(is_default, export_name_override, is_init, is_writeable)`.
+/// Returns `(is_default, export_name_override, is_init, is_writeable, comment)`.
 pub(crate) fn parse_surrealism_attrs(
 	args: &Punctuated<Meta, Comma>,
-) -> (bool, Option<String>, bool, bool) {
+) -> (bool, Option<String>, bool, bool, Option<String>) {
 	let mut is_default = false;
 	let mut export_name_override: Option<String> = None;
 	let mut is_init = false;
 	let mut is_writeable = false;
+	let mut comment: Option<String> = None;
 
 	for meta in args.iter() {
 		match meta {
@@ -40,6 +41,19 @@ pub(crate) fn parse_surrealism_attrs(
 					export_name_override = Some(val);
 				}
 			}
+			Meta::NameValue(MetaNameValue {
+				path,
+				value,
+				..
+			}) if path.is_ident("comment") => {
+				if let Expr::Lit(ExprLit {
+					lit: Lit::Str(s),
+					..
+				}) = value
+				{
+					comment = Some(s.value());
+				}
+			}
 			Meta::Path(path) if path.is_ident("default") => {
 				is_default = true;
 			}
@@ -51,19 +65,22 @@ pub(crate) fn parse_surrealism_attrs(
 			}
 			_ => panic!(
 				"Unsupported attribute: expected #[surrealism], #[surrealism(default)], \
-				 #[surrealism(init)], #[surrealism(writeable)], or #[surrealism(name = \"...\")]"
+				 #[surrealism(init)], #[surrealism(writeable)], #[surrealism(comment = \"...\")], \
+				 or #[surrealism(name = \"...\")]"
 			),
 		}
 	}
 
-	(is_default, export_name_override, is_init, is_writeable)
+	(is_default, export_name_override, is_init, is_writeable, comment)
 }
 
 /// Parse surrealism attribute arguments from a `syn::Attribute` (used when
 /// stripping inner attributes inside a mod).
-pub(crate) fn parse_surrealism_attr(attr: &Attribute) -> (bool, Option<String>, bool, bool) {
+pub(crate) fn parse_surrealism_attr(
+	attr: &Attribute,
+) -> (bool, Option<String>, bool, bool, Option<String>) {
 	match &attr.meta {
-		Meta::Path(_) => (false, None, false, false),
+		Meta::Path(_) => (false, None, false, false, None),
 		Meta::List(list) => {
 			let args: Punctuated<Meta, Comma> = list
 				.parse_args_with(Punctuated::parse_terminated)

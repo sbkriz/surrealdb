@@ -5,6 +5,7 @@
 #[doc(hidden)]
 pub struct SurrealismEntry {
 	pub name: Option<&'static str>,
+	pub comment: Option<&'static str>,
 	pub invoke: fn(&[u8]) -> Result<Vec<u8>, String>,
 	pub args: fn() -> Result<Vec<u8>, String>,
 	pub returns: fn() -> Result<Vec<u8>, String>,

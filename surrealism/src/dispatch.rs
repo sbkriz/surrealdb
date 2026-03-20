@@ -30,6 +30,10 @@ impl Guest for SurrealismPlugin {
 		Ok(find_entry(name.as_deref())?.writeable)
 	}
 
+	fn function_comment(name: Option<String>) -> Result<Option<String>, String> {
+		Ok(find_entry(name.as_deref())?.comment.map(String::from))
+	}
+
 	fn init() -> Result<(), String> {
 		let mut inits = inventory::iter::<SurrealismInit>();
 		let Some(init) = inits.next() else {

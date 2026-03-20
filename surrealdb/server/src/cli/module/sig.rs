@@ -24,6 +24,9 @@ pub async fn init(file: PathBuf, fnc: Option<String>) -> Result<()> {
 		export.args_display(),
 		export.returns_display()
 	);
+	if let Some(comment) = &export.comment {
+		println!("   COMMENT: {comment}");
+	}
 
 	Ok(())
 }

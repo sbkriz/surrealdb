@@ -4,6 +4,7 @@ use anyhow::Result;
 use surrealdb_types::SurrealValue;
 use surrealism::surrealism;
 
+/// Check whether a person is old enough to drive.
 #[surrealism]
 fn can_drive(age: i64) -> bool {
 	age >= 18
@@ -16,6 +17,7 @@ struct User {
 	enabled: bool,
 }
 
+/// Create a new user record if one does not already exist.
 #[surrealism(writeable)]
 fn create_user(user: User) -> Result<String> {
 	let exists: bool =
@@ -36,7 +38,8 @@ fn def(age: i64) -> bool {
 	age >= 18
 }
 
-#[surrealism]
+/// This doc comment is overridden by the explicit comment below.
+#[surrealism(comment = "Divide two integers, returning an error on division by zero.")]
 fn safe_divide(a: i64, b: i64) -> Result<i64, String> {
 	if b == 0 {
 		Err("Division by zero".to_string())
@@ -238,6 +241,7 @@ mod math {
 		x * 2
 	}
 
+	/// Add two integers.
 	#[surrealism]
 	fn add(a: i64, b: i64) -> i64 {
 		a + b

@@ -94,6 +94,10 @@ async fn extract_exports(wasm: &[u8], config: &SurrealismConfig) -> Result<Expor
 			.writeable(name.clone())
 			.await
 			.prefix_err(|| format!("Failed to get writeable flag for '{display}'"))?;
+		let comment = controller
+			.comment(name.clone())
+			.await
+			.prefix_err(|| format!("Failed to get comment for '{display}'"))?;
 
 		let args_text = Some(args.iter().map(|k| k.to_string()).collect());
 		let returns_text = Some(returns.to_string());
@@ -105,6 +109,7 @@ async fn extract_exports(wasm: &[u8], config: &SurrealismConfig) -> Result<Expor
 			args_text,
 			returns_text,
 			writeable,
+			comment,
 		});
 	}
 

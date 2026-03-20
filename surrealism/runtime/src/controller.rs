@@ -35,6 +35,8 @@ pub struct Controller {
 	list_fn: Option<component::Func>,
 	/// Only present when the module exports the `function-writeable` function.
 	writeable_fn: Option<component::Func>,
+	/// Only present when the module exports the `function-comment` function.
+	comment_fn: Option<component::Func>,
 	init_fn: Option<component::Func>,
 	/// Effective execution time limit from module config + server cap (without
 	/// context timeout, which varies per invocation).
@@ -58,6 +60,7 @@ impl Controller {
 		returns_fn: Option<component::Func>,
 		list_fn: Option<component::Func>,
 		writeable_fn: Option<component::Func>,
+		comment_fn: Option<component::Func>,
 		init_fn: Option<component::Func>,
 		module_execution_time: Option<Duration>,
 		epoch_counter: Arc<std::sync::atomic::AtomicU64>,
@@ -69,6 +72,7 @@ impl Controller {
 			returns_fn,
 			list_fn,
 			writeable_fn,
+			comment_fn,
 			init_fn,
 			module_execution_time,
 			epoch_counter,
@@ -299,6 +303,31 @@ impl Controller {
 			}
 			Err(e) => {
 				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.writeable(): WASM TRAP");
+				Err(self.trap_to_timeout(e))
+			}
+		}
+	}
+
+	/// Query the comment for a function via the WASM export.
+	/// Only available when the module has the `function-comment` export (build tool).
+	#[tracing::instrument(skip_all, fields(name))]
+	pub async fn comment(&mut self, name: Option<String>) -> SurrealismResult<Option<String>> {
+		let display_name = name.as_deref().unwrap_or("<default>");
+		tracing::debug!(name = %display_name, "controller.comment(): calling function-comment");
+		let func = self.comment_fn.ok_or_else(|| {
+			SurrealismError::Other(anyhow::anyhow!("function-comment export not available"))
+		})?;
+		self.apply_module_deadline();
+		let typed =
+			func.typed::<(Option<&str>,), (Result<Option<String>, String>,)>(&self.store)?;
+
+		match typed.call_async(&mut self.store, (name.as_deref(),)).await {
+			Ok((result,)) => {
+				tracing::debug!(name = %display_name, ok = result.is_ok(), "controller.comment(): call_async completed");
+				result.map_err(SurrealismError::FunctionCallError)
+			}
+			Err(e) => {
+				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.comment(): WASM TRAP");
 				Err(self.trap_to_timeout(e))
 			}
 		}

@@ -149,6 +149,11 @@ world plugin {
     /// enabling optimizations such as read-only transactions and parallel execution.
     export function-writeable: func(name: option<string>) -> result<bool, string>;
 
+    /// Return the comment for the given function, if one was provided.
+    /// Sourced from Rust doc comments or an explicit `#[surrealism(comment = "...")]`.
+    /// Returns `none` when the function has no comment.
+    export function-comment: func(name: option<string>) -> result<option<string>, string>;
+
     /// Optional initialization hook called once after instantiation.
     ///
     /// If this returns an error, the host marks the module as failed and will

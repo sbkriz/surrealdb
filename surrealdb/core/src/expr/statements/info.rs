@@ -167,21 +167,21 @@ impl InfoStatement {
 				// Get the transaction
 				let txn = ctx.tx();
 				// Create the result set
-			let res = if *structured {
-				let object = map! {
-					"accesses".to_string() => process(txn.all_db_accesses(ns, db).await?),
-					"apis".to_string() => process(txn.all_db_apis(ns, db).await?),
-					"analyzers".to_string() => process(txn.all_db_analyzers(ns, db).await?),
-					"buckets".to_string() => process(txn.all_db_buckets(ns, db).await?),
-					"functions".to_string() => process(txn.all_db_functions(ns, db).await?),
-					"modules".to_string() => process_modules(ctx, ns, db, txn.all_db_modules(ns, db).await?).await,
-					"models".to_string() => process(txn.all_db_models(ns, db).await?),
-					"params".to_string() => process(txn.all_db_params(ns, db).await?),
-					"tables".to_string() => process(txn.all_tb(ns, db, version).await?),
-					"users".to_string() => process(txn.all_db_users(ns, db).await?),
-					"configs".to_string() => process(txn.all_db_configs(ns, db).await?),
-					"sequences".to_string() => process(txn.all_db_sequences(ns, db).await?),
-				};
+				let res = if *structured {
+					let object = map! {
+						"accesses".to_string() => process(txn.all_db_accesses(ns, db).await?),
+						"apis".to_string() => process(txn.all_db_apis(ns, db).await?),
+						"analyzers".to_string() => process(txn.all_db_analyzers(ns, db).await?),
+						"buckets".to_string() => process(txn.all_db_buckets(ns, db).await?),
+						"functions".to_string() => process(txn.all_db_functions(ns, db).await?),
+						"modules".to_string() => process_modules(ctx, ns, db, txn.all_db_modules(ns, db).await?).await,
+						"models".to_string() => process(txn.all_db_models(ns, db).await?),
+						"params".to_string() => process(txn.all_db_params(ns, db).await?),
+						"tables".to_string() => process(txn.all_tb(ns, db, version).await?),
+						"users".to_string() => process(txn.all_db_users(ns, db).await?),
+						"configs".to_string() => process(txn.all_db_configs(ns, db).await?),
+						"sequences".to_string() => process(txn.all_db_sequences(ns, db).await?),
+					};
 					Value::Object(Object(object))
 				} else {
 					let object = map! {
@@ -452,9 +452,7 @@ async fn get_module_exports(
 	use crate::surrealism::cache::SurrealismCacheLookup;
 
 	let lookup = match executable {
-		ModuleExecutable::Surrealism(s) => {
-			SurrealismCacheLookup::File(ns, db, &s.bucket, &s.key)
-		}
+		ModuleExecutable::Surrealism(s) => SurrealismCacheLookup::File(ns, db, &s.bucket, &s.key),
 		ModuleExecutable::Silo(s) => {
 			SurrealismCacheLookup::Silo(&s.organisation, &s.package, s.major, s.minor, s.patch)
 		}
@@ -483,6 +481,9 @@ async fn get_module_exports(
 			);
 			obj.insert("returns".to_string(), Value::from(format!("{}", f.returns)));
 			obj.insert("writeable".to_string(), Value::from(f.writeable));
+			if let Some(comment) = &f.comment {
+				obj.insert("comment".to_string(), Value::from(comment.clone()));
+			}
 			Value::Object(obj)
 		})
 		.collect();
@@ -504,9 +505,7 @@ pub(crate) async fn process_modules(
 		let mut val = module.clone().structure();
 		#[cfg(feature = "surrealism")]
 		if let Value::Object(ref mut obj) = val {
-			if let Some(exports) =
-				get_module_exports(ctx, &ns, &db, &module.executable).await
-			{
+			if let Some(exports) = get_module_exports(ctx, &ns, &db, &module.executable).await {
 				obj.insert("exports".to_string(), exports);
 			}
 		}
