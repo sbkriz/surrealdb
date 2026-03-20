@@ -212,9 +212,9 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 				if let Some(idx) =
 					inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
-					let attr = inner_mod.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable) =
-						parse_surrealism_attr(&attr);
+				let attr = inner_mod.attrs.remove(idx);
+				let (inner_default, inner_name, inner_init, inner_writeable, _) =
+					parse_surrealism_attr(&attr);
 
 					if inner_default {
 						panic!("#[surrealism(default)] cannot be used on a module");
