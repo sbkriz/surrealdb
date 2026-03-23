@@ -62,7 +62,10 @@ yanked = "warn"
 #   see https://github.com/RustCrypto/RSA/issues/19#issuecomment-1822995643 for more information
 # - for RUSTSEC-2024-0436, paste is now unmaintained and archived, but we only use paste in tests
 #   so we could wait for ${concat(...)} metavariable expressions (issue #124225) to stabilize
-ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2025-0141", "RUSTSEC-2023-0071", "RUSTSEC-2024-0436"]
+# - for RUSTSEC-2026-0049, rustls-webpki 0.101.7 has a CRL distribution point matching bug.
+#   The fix requires >=0.103.10 but 0.101.7 is pinned by surrealdb-tikv-client -> tonic 0.10.2
+#   -> rustls 0.21.x. Needs surrealdb-tikv-client to upgrade to tonic 0.14.x / rustls 0.23.x.
+ignore = ["RUSTSEC-2025-0134", "RUSTSEC-2025-0141", "RUSTSEC-2023-0071", "RUSTSEC-2024-0436", "RUSTSEC-2026-0049"]
 
 # --------------------------------------------------
 # LICENSES
