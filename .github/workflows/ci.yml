@@ -40,13 +40,15 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -54,7 +56,7 @@ jobs:
         run: cargo build --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: surreal-${{ matrix.name }}
           path: target/${{ matrix.target }}/debug/surreal
@@ -68,15 +70,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
         with:
+          toolchain: stable
           components: rustfmt
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -91,15 +94,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
         with:
+          toolchain: stable
           components: clippy
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -117,13 +121,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -141,13 +147,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install MSRV toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -165,13 +173,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: crates/fuzz
@@ -180,7 +190,7 @@ jobs:
         run: cargo build --manifest-path crates/fuzz/Cargo.toml
 
       - name: Check OSS-Fuzz
-        uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@master
+        uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@cafd7a0eb8ecb4e007c56897996a9b65c49c972f
         with:
           oss-fuzz-project-name: surrealdb
           language: rust
@@ -192,15 +202,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
         with:
+          toolchain: stable
           targets: wasm32-unknown-unknown
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -215,10 +226,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Install revision-lock
         run: cargo install revision-lock
@@ -258,13 +271,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -279,13 +294,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -300,13 +317,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -321,13 +340,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -342,13 +363,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -367,13 +390,15 @@ jobs:
     runs-on: [ runner-arm64-2xlarge ]
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -381,7 +406,7 @@ jobs:
         run: sudo apt-get -y update
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@3216b6964cbfe053bb8b9a2ef245bd9300e2061d
 
       - name: Install cargo-make
         run: cargo install --debug --locked cargo-make
@@ -390,7 +415,7 @@ jobs:
         run: cargo make ci-workspace-coverage
 
       - name: Upload coverage report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         timeout-minutes: 1
         continue-on-error: true
         with:
@@ -407,13 +432,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -430,13 +457,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -459,13 +488,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -488,13 +519,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -517,13 +550,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -546,13 +581,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -575,13 +612,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -604,13 +643,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -633,13 +674,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -669,13 +712,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -683,7 +728,7 @@ jobs:
         run: cargo install --debug --locked cargo-make
 
       - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v.2.2.0
+        uses: foundationdb-rs/foundationdb-actions-install@6f9e87d22e19b889ab4c4eeabc1939f807df1d8a
         with:
           version: "7.1.61"
 
@@ -703,13 +748,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -717,7 +764,7 @@ jobs:
         run: cargo install --debug --locked cargo-make
 
       - name: Setup FoundationDB
-        uses: foundationdb-rs/foundationdb-actions-install@v.2.2.0
+        uses: foundationdb-rs/foundationdb-actions-install@6f9e87d22e19b889ab4c4eeabc1939f807df1d8a
         with:
           version: "7.3.47"
 
@@ -741,13 +788,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
@@ -766,13 +815,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
 
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
 
       - name: Setup cache
-        uses: Swatinem/rust-cache@v2
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           workspaces: crates/language-tests
@@ -803,7 +854,7 @@ jobs:
           - latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: "surrealdb/surrealdb.js"
 
@@ -848,7 +899,7 @@ jobs:
           - 1.23
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: "surrealdb/surrealdb.go"
 
@@ -896,7 +947,7 @@ jobs:
           - 3.13
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: "surrealdb/surrealdb.py"
 
@@ -949,7 +1000,7 @@ jobs:
           - 8.2
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: "surrealdb/surrealdb.php"
 
@@ -993,7 +1044,7 @@ jobs:
           - 9.0.x
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           repository: "surrealdb/surrealdb.net"
 
