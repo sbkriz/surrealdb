@@ -45,7 +45,7 @@ pub(crate) fn generate_arg_sentinels(
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_registration_body(
 	fn_name: &syn::Ident,
-	arg_patterns: &[Box<syn::Pat>],
+	arg_patterns: &[syn::Pat],
 	arg_wire_names: &[String],
 	tuple_type: &proc_macro2::TokenStream,
 	tuple_pattern: &proc_macro2::TokenStream,

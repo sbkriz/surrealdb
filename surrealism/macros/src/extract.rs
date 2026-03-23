@@ -8,7 +8,7 @@ use crate::attr::validate_export_name;
 
 /// Extracted components of a function signature used for code generation.
 pub(crate) struct FnSignatureParts {
-	pub arg_patterns: Vec<Box<syn::Pat>>,
+	pub arg_patterns: Vec<syn::Pat>,
 	/// Wire names for each argument (derived from pattern or `#[name = "..."]`).
 	pub arg_wire_names: Vec<String>,
 	pub tuple_type: proc_macro2::TokenStream,
@@ -35,16 +35,13 @@ fn parse_param_name_attr(attrs: &[syn::Attribute]) -> Option<String> {
 			value,
 			..
 		}) = &attr.meta
+			&& path.is_ident("name")
+			&& let Expr::Lit(ExprLit {
+				lit: Lit::Str(s),
+				..
+			}) = value
 		{
-			if path.is_ident("name") {
-				if let Expr::Lit(ExprLit {
-					lit: Lit::Str(s),
-					..
-				}) = value
-				{
-					return Some(s.value());
-				}
-			}
+			return Some(s.value());
 		}
 	}
 	None
@@ -76,7 +73,7 @@ pub(crate) fn extract_fn_signature(sig: &syn::Signature) -> syn::Result<FnSignat
 					parse_param_name_attr(attrs).unwrap_or_else(|| wire_name_from_pat(pat, index));
 				validate_export_name(&wire_name);
 				arg_wire_names.push(wire_name);
-				arg_patterns.push(pat.clone());
+				arg_patterns.push(*pat.clone());
 				arg_types.push(ty);
 			}
 			FnArg::Receiver(r) => {

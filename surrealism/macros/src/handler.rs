@@ -171,23 +171,24 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
 					let attr = fn_item.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
-						match parse_surrealism_attr(&attr) {
-							Ok(v) => v,
-							Err(e) => {
-								new_items.push(Item::Verbatim(e.to_compile_error()));
-								continue;
-							}
-						};
+					let inner_attrs = match parse_surrealism_attr(&attr) {
+						Ok(v) => v,
+						Err(e) => {
+							new_items.push(Item::Verbatim(e.to_compile_error()));
+							continue;
+						}
+					};
 
-					if inner_init {
+					if inner_attrs.is_init {
 						panic!("#[surrealism(init)] cannot be used inside a module");
 					}
 
-					let export_name = if inner_default {
+					let export_name = if inner_attrs.is_default {
 						prefix.to_string()
 					} else {
-						let base = inner_name.unwrap_or_else(|| fn_item.sig.ident.to_string());
+						let base = inner_attrs
+							.export_name
+							.unwrap_or_else(|| fn_item.sig.ident.to_string());
 						format!("{prefix}::{base}")
 					};
 
@@ -199,7 +200,8 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 						);
 					}
 
-					let comment = explicit_comment.or_else(|| extract_doc_comment(&fn_item.attrs));
+					let comment =
+						inner_attrs.comment.or_else(|| extract_doc_comment(&fn_item.attrs));
 
 					let parts = match extract_fn_signature(&fn_item.sig) {
 						Ok(v) => v,
@@ -224,7 +226,7 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 						parts.is_result,
 						false,
 						Some(&export_name),
-						inner_writeable,
+						inner_attrs.is_writeable,
 						comment.as_deref(),
 					);
 
@@ -238,29 +240,28 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
 				{
 					let attr = inner_mod.attrs.remove(idx);
-					let (inner_default, inner_name, inner_init, inner_writeable, _) =
-						match parse_surrealism_attr(&attr) {
-							Ok(v) => v,
-							Err(e) => {
-								new_items.push(Item::Verbatim(e.to_compile_error()));
-								continue;
-							}
-						};
+					let inner_attrs = match parse_surrealism_attr(&attr) {
+						Ok(v) => v,
+						Err(e) => {
+							new_items.push(Item::Verbatim(e.to_compile_error()));
+							continue;
+						}
+					};
 
-					if inner_default {
+					if inner_attrs.is_default {
 						panic!("#[surrealism(default)] cannot be used on a module");
 					}
-					if inner_init {
+					if inner_attrs.is_init {
 						panic!("#[surrealism(init)] cannot be used on a module");
 					}
-					if inner_writeable {
+					if inner_attrs.is_writeable {
 						panic!(
 							"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
 						);
 					}
 
 					let inner_prefix_segment =
-						inner_name.unwrap_or_else(|| inner_mod.ident.to_string());
+						inner_attrs.export_name.unwrap_or_else(|| inner_mod.ident.to_string());
 					let inner_prefix = format!("{prefix}::{inner_prefix_segment}");
 
 					let Some((brace, inner_items)) = inner_mod.content.take() else {
