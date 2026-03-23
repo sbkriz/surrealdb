@@ -102,7 +102,7 @@ async fn extract_exports(wasm: &[u8], config: &SurrealismConfig) -> Result<Expor
 			.await
 			.prefix_err(|| format!("Failed to get comment for '{display}'"))?;
 
-		let args_text = Some(args.iter().map(|k| k.to_string()).collect());
+		let args_text = Some(args.iter().map(|(n, k)| format!("{n}: {k}")).collect());
 		let returns_text = Some(returns.to_string());
 
 		functions.push(FunctionExport {
@@ -440,8 +440,7 @@ fn resolve_attach_fs(project_root: &Path, config: &SurrealismConfig) -> Result<O
 /// Resolve the output path for the `.surrealism` package, defaulting to
 /// `<package_name>.surrealism` in the current working directory.
 fn resolve_output_path(out: Option<PathBuf>, config: &SurrealismConfig) -> Result<PathBuf> {
-	let cwd =
-		|| std::env::current_dir().prefix_err(|| "Failed to determine current directory");
+	let cwd = || std::env::current_dir().prefix_err(|| "Failed to determine current directory");
 	match out {
 		None => Ok(cwd()?.join(config.file_name())),
 		Some(out_path) => {

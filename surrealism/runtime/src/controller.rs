@@ -228,13 +228,13 @@ impl Controller {
 		}
 	}
 
-	/// Query argument types for a function via the WASM export.
+	/// Query named argument types for a function via the WASM export.
 	/// Only available when the module has the `function-args` export (build tool).
 	#[tracing::instrument(skip_all, fields(name))]
 	pub async fn args(
 		&mut self,
 		name: Option<String>,
-	) -> SurrealismResult<Vec<surrealdb_types::Kind>> {
+	) -> SurrealismResult<Vec<(String, surrealdb_types::Kind)>> {
 		let display_name = name.as_deref().unwrap_or("<default>");
 		tracing::debug!(name = %display_name, "controller.args(): calling function-args");
 		let func = self.args_fn.ok_or_else(|| {
@@ -247,7 +247,7 @@ impl Controller {
 			Ok((result,)) => {
 				tracing::debug!(name = %display_name, ok = result.is_ok(), "controller.args(): call_async completed");
 				let result_bytes = result.map_err(SurrealismError::FunctionCallError)?;
-				Ok(surrealdb_types::decode_kind_list(&result_bytes)?)
+				Ok(surrealdb_types::decode_argument_list(&result_bytes)?)
 			}
 			Err(e) => {
 				tracing::error!(name = %display_name, error = %e, error_debug = ?e, "controller.args(): WASM TRAP");

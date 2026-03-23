@@ -1,5 +1,13 @@
 use quote::{format_ident, quote};
 
+/// Encode a name for use in a Rust identifier. Escapes `_` and `::`
+/// to avoid collisions:
+///   - `_`  → `_u`  (u for underscore)
+///   - `::` → `_s`  (s for scope separator)
+fn encode_name(name: &str) -> String {
+	name.replace('_', "_u").replace("::", "_s")
+}
+
 /// Generate the sentinel const for compile-time duplicate detection.
 pub(crate) fn generate_sentinel(export_name: Option<&str>) -> proc_macro2::TokenStream {
 	let sentinel_ident = format_ident!("{}", sentinel_const_name(export_name));
@@ -10,12 +18,35 @@ pub(crate) fn generate_sentinel(export_name: Option<&str>) -> proc_macro2::Token
 	}
 }
 
+/// Generate sentinel consts for each argument wire name within a function.
+/// Uses `_a` as the argument delimiter, which is collision-free because
+/// only `_u` and `_s` are produced by `encode_name`.
+pub(crate) fn generate_arg_sentinels(
+	export_name: Option<&str>,
+	arg_wire_names: &[String],
+) -> proc_macro2::TokenStream {
+	let sentinels: Vec<_> = arg_wire_names
+		.iter()
+		.map(|arg_name| {
+			let const_name = arg_sentinel_const_name(export_name, arg_name);
+			let ident = format_ident!("{}", const_name);
+			quote! {
+				#[doc(hidden)]
+				#[allow(dead_code, non_upper_case_globals)]
+				const #ident: () = ();
+			}
+		})
+		.collect();
+	quote! { #(#sentinels)* }
+}
+
 /// Generate the registration body (invoke/args/returns fns + inventory submit).
 /// For init functions, generates the init wrapper + submit.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn generate_registration_body(
 	fn_name: &syn::Ident,
 	arg_patterns: &[Box<syn::Pat>],
+	arg_wire_names: &[String],
 	tuple_type: &proc_macro2::TokenStream,
 	tuple_pattern: &proc_macro2::TokenStream,
 	result_type: &proc_macro2::TokenStream,
@@ -62,7 +93,13 @@ pub(crate) fn generate_registration_body(
 			Some(s) => quote! { Some(#s) },
 		};
 
+		let wire_name_strs = arg_wire_names.iter().map(|n| n.as_str()).collect::<Vec<_>>();
+
+		let arg_sentinels = generate_arg_sentinels(export_name, arg_wire_names);
+
 		quote! {
+			#arg_sentinels
+
 			fn #invoke_ident(raw_args: &[u8]) -> Result<Vec<u8>, String> {
 				use surrealism::types::args::Args;
 				use surrealdb_types::SurrealValue;
@@ -82,7 +119,10 @@ pub(crate) fn generate_registration_body(
 			fn #args_ident() -> Result<Vec<u8>, String> {
 				use surrealism::types::args::Args;
 				let kinds = <#tuple_type as Args>::kinds();
-				surrealdb_types::encode_kind_list(&kinds).map_err(|e| e.to_string())
+				let names: &[&str] = &[#(#wire_name_strs),*];
+				let arguments: Vec<(&str, surrealdb_types::Kind)> =
+					names.iter().copied().zip(kinds).collect();
+				surrealdb_types::encode_argument_list(&arguments).map_err(|e| e.to_string())
 			}
 
 			fn #returns_ident() -> Result<Vec<u8>, String> {
@@ -105,13 +145,13 @@ pub(crate) fn generate_registration_body(
 
 /// Build a unique sentinel const name for compile-time duplicate detection.
 ///
-/// - Default export (`None`) → `__sr_export_default`
-/// - Named export (`Some(name)`) → `__sr_export__` + encoded name
+/// - Default export (`None`) -> `__sr_export_default`
+/// - Named export (`Some(name)`) -> `__sr_export__` + encoded name
 ///
 /// The name part is encoded so `_` and `::` in export names produce
 /// valid, collision-free Rust identifiers:
-///   - `_`  → `_u`  (u for underscore)
-///   - `::` → `_s`  (s for scope separator)
+///   - `_`  -> `_u`  (u for underscore)
+///   - `::` -> `_s`  (s for scope separator)
 ///
 /// `_` is escaped first so that a literal `_s` in a name becomes `_us`,
 /// which cannot collide with `::` (which becomes `_s`).
@@ -119,8 +159,23 @@ fn sentinel_const_name(export_name: Option<&str>) -> String {
 	match export_name {
 		None => "__sr_export_default".to_string(),
 		Some(name) => {
-			let encoded = name.replace('_', "_u").replace("::", "_s");
+			let encoded = encode_name(name);
 			format!("__sr_export__{encoded}")
 		}
 	}
+}
+
+/// Build a unique sentinel const name for compile-time duplicate argument
+/// detection within a function.
+///
+/// Uses `_a` as the argument delimiter between the encoded function name
+/// and the encoded argument name. This is collision-free because `_a`
+/// never appears in `encode_name` output (only `_u` and `_s` do).
+fn arg_sentinel_const_name(export_name: Option<&str>, arg_name: &str) -> String {
+	let fn_part = match export_name {
+		None => "default".to_string(),
+		Some(name) => encode_name(name),
+	};
+	let arg_part = encode_name(arg_name);
+	format!("__sr_export__{fn_part}_a{arg_part}")
 }

@@ -174,7 +174,11 @@ impl<'ctx> Planner<'ctx> {
 	/// signature is read so the flag is always consistent with the module's
 	/// declaration.
 	#[cfg(feature = "surrealism")]
-	async fn resolve_module_writeable(&self, module: &str, sub: Option<&str>) -> Result<bool, Error> {
+	async fn resolve_module_writeable(
+		&self,
+		module: &str,
+		sub: Option<&str>,
+	) -> Result<bool, Error> {
 		use crate::catalog::providers::DatabaseProvider;
 		use crate::expr::module::ModuleExecutable;
 
@@ -184,11 +188,16 @@ impl<'ctx> Planner<'ctx> {
 		let (Some(ns), Some(db)) = (&self.ns, &self.db) else {
 			return Ok(false);
 		};
-		let Some(db_def) = txn.get_db_by_name(ns, db).await? else {
+		let Some(db_def) =
+			txn.get_db_by_name(ns, db).await.map_err(|e| Error::Internal(e.to_string()))?
+		else {
 			return Ok(false);
 		};
 		let mod_name = format!("mod::{module}");
-		let val = txn.get_db_module(db_def.namespace_id, db_def.database_id, &mod_name).await?;
+		let val = txn
+			.get_db_module(db_def.namespace_id, db_def.database_id, &mod_name)
+			.await
+			.map_err(|e| Error::Internal(e.to_string()))?;
 		let executable: ModuleExecutable = val.executable.clone().into();
 		let sig = executable
 			.signature(self.ctx, &db_def.namespace_id, &db_def.database_id, sub)
@@ -198,7 +207,11 @@ impl<'ctx> Planner<'ctx> {
 	}
 
 	#[cfg(not(feature = "surrealism"))]
-	async fn resolve_module_writeable(&self, _module: &str, _sub: Option<&str>) -> Result<bool, Error> {
+	async fn resolve_module_writeable(
+		&self,
+		_module: &str,
+		_sub: Option<&str>,
+	) -> Result<bool, Error> {
 		Ok(false)
 	}
 
@@ -223,8 +236,10 @@ impl<'ctx> Planner<'ctx> {
 			minor,
 			patch,
 		};
-		let sig =
-			executable.signature(self.ctx, sub).await.map_err(|e| Error::Internal(e.to_string()))?;
+		let sig = executable
+			.signature(self.ctx, sub)
+			.await
+			.map_err(|e| Error::Internal(e.to_string()))?;
 		Ok(sig.writeable)
 	}
 

@@ -6,6 +6,50 @@ use surrealdb_protocol::fb::v1 as proto_fb;
 use super::{FromFlatbuffers, ToFlatbuffers};
 use crate::{Kind, Value};
 
+/// Encode a slice of `(&str, Kind)` pairs into a FlatBuffers `ArgumentList`.
+pub fn encode_argument_list(args: &[(&str, Kind)]) -> anyhow::Result<Vec<u8>> {
+	let mut fbb = flatbuffers::FlatBufferBuilder::new();
+	let offsets: Vec<_> = args
+		.iter()
+		.map(|(name, kind)| -> anyhow::Result<_> {
+			let key_offset = fbb.create_string(name);
+			let kind_offset = kind.to_fb(&mut fbb)?;
+			Ok(proto_fb::Argument::create(
+				&mut fbb,
+				&proto_fb::ArgumentArgs {
+					key: Some(key_offset),
+					value: Some(kind_offset),
+				},
+			))
+		})
+		.collect::<anyhow::Result<Vec<_>>>()?;
+	let vec = fbb.create_vector(&offsets);
+	let root = proto_fb::ArgumentList::create(
+		&mut fbb,
+		&proto_fb::ArgumentListArgs {
+			arguments: Some(vec),
+		},
+	);
+	fbb.finish(root, None);
+	Ok(fbb.finished_data().to_vec())
+}
+
+/// Decode a FlatBuffers `ArgumentList` into a `Vec<(String, Kind)>`.
+pub fn decode_argument_list(bytes: &[u8]) -> anyhow::Result<Vec<(String, Kind)>> {
+	let root = flatbuffers::root::<proto_fb::ArgumentList>(bytes)
+		.context("Failed to decode ArgumentList")?;
+	let arguments = root.arguments().context("Missing arguments in ArgumentList")?;
+	arguments
+		.iter()
+		.map(|arg| {
+			let key = arg.key().context("Missing key in Argument")?.to_string();
+			let kind_fb = arg.value().context("Missing value in Argument")?;
+			let kind = Kind::from_fb(kind_fb)?;
+			Ok((key, kind))
+		})
+		.collect()
+}
+
 /// Encode a slice of Values into a FlatBuffers `ValueList`.
 pub fn encode_value_list(values: &[Value]) -> anyhow::Result<Vec<u8>> {
 	let mut fbb = flatbuffers::FlatBufferBuilder::new();
@@ -250,6 +294,25 @@ mod tests {
 		let bytes = encode_kind_list(&kinds).unwrap();
 		let decoded = decode_kind_list(&bytes).unwrap();
 		assert_eq!(kinds, decoded);
+	}
+
+	#[test]
+	fn test_argument_list_roundtrip() {
+		let args: Vec<(&str, Kind)> =
+			vec![("name", Kind::String), ("age", Kind::Int), ("active", Kind::Bool)];
+		let bytes = encode_argument_list(&args).unwrap();
+		let decoded = decode_argument_list(&bytes).unwrap();
+		let expected: Vec<(String, Kind)> =
+			args.into_iter().map(|(n, k)| (n.to_string(), k)).collect();
+		assert_eq!(expected, decoded);
+	}
+
+	#[test]
+	fn test_argument_list_empty() {
+		let args: Vec<(&str, Kind)> = vec![];
+		let bytes = encode_argument_list(&args).unwrap();
+		let decoded = decode_argument_list(&bytes).unwrap();
+		assert!(decoded.is_empty());
 	}
 
 	#[test]

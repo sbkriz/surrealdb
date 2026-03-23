@@ -477,7 +477,17 @@ async fn get_module_exports(
 			}
 			obj.insert(
 				"args".to_string(),
-				Value::Array(f.args.iter().map(|a| Value::from(format!("{a}"))).collect()),
+				Value::Array(
+					f.args
+						.iter()
+						.map(|(arg_name, kind)| {
+							let mut arg_obj = Object::default();
+							arg_obj.insert("name".to_string(), Value::from(arg_name.clone()));
+							arg_obj.insert("kind".to_string(), Value::from(format!("{kind}")));
+							Value::Object(arg_obj)
+						})
+						.collect(),
+				),
 			);
 			obj.insert("returns".to_string(), Value::from(format!("{}", f.returns)));
 			obj.insert("writeable".to_string(), Value::from(f.writeable));
@@ -504,10 +514,10 @@ pub(crate) async fn process_modules(
 		#[allow(unused_mut)]
 		let mut val = module.clone().structure();
 		#[cfg(feature = "surrealism")]
-		if let Value::Object(ref mut obj) = val {
-			if let Some(exports) = get_module_exports(ctx, &ns, &db, &module.executable).await {
-				obj.insert("exports".to_string(), exports);
-			}
+		if let Value::Object(ref mut obj) = val
+			&& let Some(exports) = get_module_exports(ctx, &ns, &db, &module.executable).await
+		{
+			obj.insert("exports".to_string(), exports);
 		}
 		values.push(val);
 	}

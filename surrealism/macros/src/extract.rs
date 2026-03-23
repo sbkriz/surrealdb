@@ -1,38 +1,81 @@
 use quote::quote;
-use syn::{FnArg, GenericArgument, PatType, PathArguments, ReturnType, Type, TypePath};
+use syn::{
+	Expr, ExprLit, FnArg, GenericArgument, Lit, Meta, MetaNameValue, Pat, PatType, PathArguments,
+	ReturnType, Type, TypePath,
+};
+
+use crate::attr::validate_export_name;
 
 /// Extracted components of a function signature used for code generation.
-///
-/// Fields:
-/// - Argument patterns (e.g. variable bindings)
-/// - Tuple type combining all argument types
-/// - Tuple pattern destructuring all arguments
-/// - The inner return type (unwrapped from `Result` if applicable)
-/// - Whether the return type is a `Result`
-pub(crate) type FnSignatureParts = (
-	Vec<Box<syn::Pat>>,
-	proc_macro2::TokenStream,
-	proc_macro2::TokenStream,
-	proc_macro2::TokenStream,
-	bool,
-);
+pub(crate) struct FnSignatureParts {
+	pub arg_patterns: Vec<Box<syn::Pat>>,
+	/// Wire names for each argument (derived from pattern or `#[name = "..."]`).
+	pub arg_wire_names: Vec<String>,
+	pub tuple_type: proc_macro2::TokenStream,
+	pub tuple_pattern: proc_macro2::TokenStream,
+	pub result_type: proc_macro2::TokenStream,
+	pub is_result: bool,
+}
 
-/// Extract argument patterns, types, and return type info from a function signature.
+/// Derive the wire name from a pattern binding, falling back to positional
+/// names like `_0`, `_1` for non-ident patterns.
+fn wire_name_from_pat(pat: &Pat, index: usize) -> String {
+	match pat {
+		Pat::Ident(ident) => ident.ident.to_string(),
+		_ => format!("_{index}"),
+	}
+}
+
+/// Parse a `#[name = "..."]` attribute on a function parameter.
+/// Returns `Some(wire_name)` if present, `None` otherwise.
+fn parse_param_name_attr(attrs: &[syn::Attribute]) -> Option<String> {
+	for attr in attrs {
+		if let Meta::NameValue(MetaNameValue {
+			path,
+			value,
+			..
+		}) = &attr.meta
+		{
+			if path.is_ident("name") {
+				if let Expr::Lit(ExprLit {
+					lit: Lit::Str(s),
+					..
+				}) = value
+				{
+					return Some(s.value());
+				}
+			}
+		}
+	}
+	None
+}
+
+/// Extract argument patterns, types, wire names, and return type info from a
+/// function signature.
+///
+/// Wire names are derived from the parameter binding name (e.g. `age` from
+/// `age: i64`) unless overridden with `#[name = "..."]` on the parameter.
 ///
 /// The `Result` detection is shallow: it only matches the last path segment named
 /// `Result` (e.g. `Result<T, E>`, `anyhow::Result<T>`). Aliased or deeply nested
 /// Result types are treated as non-Result returns.
 pub(crate) fn extract_fn_signature(sig: &syn::Signature) -> syn::Result<FnSignatureParts> {
 	let mut arg_patterns = Vec::new();
+	let mut arg_wire_names = Vec::new();
 	let mut arg_types: Vec<&Box<Type>> = Vec::new();
 
-	for arg in &sig.inputs {
+	for (index, arg) in sig.inputs.iter().enumerate() {
 		match arg {
 			FnArg::Typed(PatType {
 				pat,
 				ty,
+				attrs,
 				..
 			}) => {
+				let wire_name =
+					parse_param_name_attr(attrs).unwrap_or_else(|| wire_name_from_pat(pat, index));
+				validate_export_name(&wire_name);
+				arg_wire_names.push(wire_name);
 				arg_patterns.push(pat.clone());
 				arg_types.push(ty);
 			}
@@ -82,5 +125,12 @@ pub(crate) fn extract_fn_signature(sig: &syn::Signature) -> syn::Result<FnSignat
 		}
 	};
 
-	Ok((arg_patterns, tuple_type, tuple_pattern, result_type, is_result))
+	Ok(FnSignatureParts {
+		arg_patterns,
+		arg_wire_names,
+		tuple_type,
+		tuple_pattern,
+		result_type,
+		is_result,
+	})
 }

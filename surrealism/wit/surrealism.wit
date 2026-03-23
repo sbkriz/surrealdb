@@ -25,9 +25,9 @@ interface types {
     /// Used to describe the return type of a function.
     type serialized-kind = list<u8>;
 
-    /// An ordered list of SurrealDB type descriptors encoded as a FlatBuffers byte buffer.
-    /// Used to describe the argument types of a function.
-    type serialized-kinds = list<u8>;
+    /// Named function arguments encoded as a FlatBuffers `ArgumentList` byte buffer.
+    /// Each entry pairs an argument name with its SurrealDB type descriptor (`Kind`).
+    type serialized-arguments = list<u8>;
 }
 
 /// Host-provided capabilities imported by the guest module.
@@ -124,7 +124,7 @@ interface host {
 /// surface without executing any functions.
 world plugin {
     import host;
-    use types.{serialized-value, serialized-args, serialized-kind, serialized-kinds};
+    use types.{serialized-value, serialized-args, serialized-kind, serialized-arguments};
 
     /// Invoke a function exported by this module.
     ///
@@ -137,9 +137,9 @@ world plugin {
     /// A `none` entry represents the default (unnamed) export.
     export list-functions: func() -> list<option<string>>;
 
-    /// Return the expected argument types for the given function.
+    /// Return the named argument types for the given function.
     /// Used by the host for arity/type checking before invocation.
-    export function-args: func(name: option<string>) -> result<serialized-kinds, string>;
+    export function-args: func(name: option<string>) -> result<serialized-arguments, string>;
 
     /// Return the declared return type for the given function.
     export function-returns: func(name: option<string>) -> result<serialized-kind, string>;

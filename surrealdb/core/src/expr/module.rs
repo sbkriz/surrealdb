@@ -296,7 +296,7 @@ fn signature_from_runtime(
 ) -> Result<Signature> {
 	let export = runtime.get_signature(sub)?;
 	Ok(Signature {
-		args: export.args.iter().cloned().map(|x| x.into()).collect(),
+		args: export.args.iter().map(|(_, k)| k.clone().into()).collect(),
 		returns: Some(export.returns.clone().into()),
 		writeable: export.writeable,
 	})

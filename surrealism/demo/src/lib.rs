@@ -33,6 +33,12 @@ fn can_drive_bla(age: i64) -> bool {
 	age >= 18
 }
 
+/// Check whether a person is old enough to drink.
+#[surrealism]
+fn can_drink(#[name = "person_age"] age: i64) -> bool {
+	age >= 21
+}
+
 #[surrealism(default)]
 fn def(age: i64) -> bool {
 	age >= 18

@@ -1,10 +1,22 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{Expr, ExprLit, Item, ItemFn, ItemMod, Lit, Meta};
+use syn::{Expr, ExprLit, FnArg, Item, ItemFn, ItemMod, Lit, Meta};
 
 use crate::attr::parse_surrealism_attr;
 use crate::extract::extract_fn_signature;
 use crate::generate::{generate_registration_body, generate_sentinel};
+
+/// Strip `#[name = "..."]` attributes from all function parameters so they
+/// don't leak into the emitted function and cause unknown-attribute errors.
+fn strip_param_name_attrs(sig: &mut syn::Signature) {
+	for arg in &mut sig.inputs {
+		if let FnArg::Typed(pat_type) = arg {
+			pat_type.attrs.retain(
+				|attr| !matches!(&attr.meta, Meta::NameValue(nv) if nv.path.is_ident("name")),
+			);
+		}
+	}
+}
 
 /// Collect `#[doc = "..."]` attributes (i.e. `///` doc comments) into a single
 /// trimmed string. Returns `None` when no doc comments are present.
@@ -49,20 +61,21 @@ pub(crate) fn handle_function(
 	is_init: bool,
 	is_writeable: bool,
 	explicit_comment: Option<String>,
-	input_fn: ItemFn,
+	mut input_fn: ItemFn,
 ) -> TokenStream {
+	let comment = explicit_comment.or_else(|| extract_doc_comment(&input_fn.attrs));
+
+	let parts = match extract_fn_signature(&input_fn.sig) {
+		Ok(v) => v,
+		Err(e) => return e.to_compile_error().into(),
+	};
+
+	strip_param_name_attrs(&mut input_fn.sig);
+
 	let fn_name = &input_fn.sig.ident;
 	let fn_vis = &input_fn.vis;
 	let fn_sig = &input_fn.sig;
 	let fn_block = &input_fn.block;
-
-	let comment = explicit_comment.or_else(|| extract_doc_comment(&input_fn.attrs));
-
-	let (arg_patterns, tuple_type, tuple_pattern, result_type, is_result) =
-		match extract_fn_signature(fn_sig) {
-			Ok(v) => v,
-			Err(e) => return e.to_compile_error().into(),
-		};
 
 	let export_name: Option<String> = if is_default {
 		None
@@ -80,11 +93,12 @@ pub(crate) fn handle_function(
 	let sentinel = generate_sentinel(export_name.as_deref());
 	let registration = generate_registration_body(
 		fn_name,
-		&arg_patterns,
-		&tuple_type,
-		&tuple_pattern,
-		&result_type,
-		is_result,
+		&parts.arg_patterns,
+		&parts.arg_wire_names,
+		&parts.tuple_type,
+		&parts.tuple_pattern,
+		&parts.result_type,
+		parts.is_result,
 		is_init,
 		export_name.as_deref(),
 		is_writeable,
@@ -152,19 +166,19 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 
 	for mut item in items {
 		match &mut item {
-		Item::Fn(fn_item) => {
-			if let Some(idx) =
-				fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
-			{
-				let attr = fn_item.attrs.remove(idx);
-				let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
-					match parse_surrealism_attr(&attr) {
-						Ok(v) => v,
-						Err(e) => {
-							new_items.push(Item::Verbatim(e.to_compile_error()));
-							continue;
-						}
-					};
+			Item::Fn(fn_item) => {
+				if let Some(idx) =
+					fn_item.attrs.iter().position(|a| a.path().is_ident("surrealism"))
+				{
+					let attr = fn_item.attrs.remove(idx);
+					let (inner_default, inner_name, inner_init, inner_writeable, explicit_comment) =
+						match parse_surrealism_attr(&attr) {
+							Ok(v) => v,
+							Err(e) => {
+								new_items.push(Item::Verbatim(e.to_compile_error()));
+								continue;
+							}
+						};
 
 					if inner_init {
 						panic!("#[surrealism(init)] cannot be used inside a module");
@@ -187,25 +201,27 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 
 					let comment = explicit_comment.or_else(|| extract_doc_comment(&fn_item.attrs));
 
+					let parts = match extract_fn_signature(&fn_item.sig) {
+						Ok(v) => v,
+						Err(e) => {
+							new_items.push(Item::Verbatim(e.to_compile_error()));
+							continue;
+						}
+					};
+
+					strip_param_name_attrs(&mut fn_item.sig);
 					let fn_name = &fn_item.sig.ident;
-					let (arg_patterns, tuple_type, tuple_pattern, result_type, is_result) =
-						match extract_fn_signature(&fn_item.sig) {
-							Ok(v) => v,
-							Err(e) => {
-								new_items.push(Item::Verbatim(e.to_compile_error()));
-								continue;
-							}
-						};
 
 					sentinels.push(generate_sentinel(Some(&export_name)));
 
 					let registration = generate_registration_body(
 						fn_name,
-						&arg_patterns,
-						&tuple_type,
-						&tuple_pattern,
-						&result_type,
-						is_result,
+						&parts.arg_patterns,
+						&parts.arg_wire_names,
+						&parts.tuple_type,
+						&parts.tuple_pattern,
+						&parts.result_type,
+						parts.is_result,
 						false,
 						Some(&export_name),
 						inner_writeable,
@@ -217,46 +233,46 @@ fn process_mod_items(prefix: &str, items: Vec<Item>) -> (Vec<Item>, Vec<proc_mac
 					continue;
 				}
 			}
-		Item::Mod(inner_mod) => {
-			if let Some(idx) =
-				inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
-			{
-				let attr = inner_mod.attrs.remove(idx);
-				let (inner_default, inner_name, inner_init, inner_writeable, _) =
-					match parse_surrealism_attr(&attr) {
-						Ok(v) => v,
-						Err(e) => {
-							new_items.push(Item::Verbatim(e.to_compile_error()));
-							continue;
-						}
+			Item::Mod(inner_mod) => {
+				if let Some(idx) =
+					inner_mod.attrs.iter().position(|a| a.path().is_ident("surrealism"))
+				{
+					let attr = inner_mod.attrs.remove(idx);
+					let (inner_default, inner_name, inner_init, inner_writeable, _) =
+						match parse_surrealism_attr(&attr) {
+							Ok(v) => v,
+							Err(e) => {
+								new_items.push(Item::Verbatim(e.to_compile_error()));
+								continue;
+							}
+						};
+
+					if inner_default {
+						panic!("#[surrealism(default)] cannot be used on a module");
+					}
+					if inner_init {
+						panic!("#[surrealism(init)] cannot be used on a module");
+					}
+					if inner_writeable {
+						panic!(
+							"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
+						);
+					}
+
+					let inner_prefix_segment =
+						inner_name.unwrap_or_else(|| inner_mod.ident.to_string());
+					let inner_prefix = format!("{prefix}::{inner_prefix_segment}");
+
+					let Some((brace, inner_items)) = inner_mod.content.take() else {
+						new_items.push(Item::Verbatim(
+							syn::Error::new_spanned(
+								&inner_mod.ident,
+								"#[surrealism] on mod requires an inline module body (mod foo { ... })",
+							)
+							.to_compile_error(),
+						));
+						continue;
 					};
-
-				if inner_default {
-					panic!("#[surrealism(default)] cannot be used on a module");
-				}
-				if inner_init {
-					panic!("#[surrealism(init)] cannot be used on a module");
-				}
-				if inner_writeable {
-					panic!(
-						"#[surrealism(writeable)] cannot be used on a module; mark individual functions instead"
-					);
-				}
-
-				let inner_prefix_segment =
-					inner_name.unwrap_or_else(|| inner_mod.ident.to_string());
-				let inner_prefix = format!("{prefix}::{inner_prefix_segment}");
-
-				let Some((brace, inner_items)) = inner_mod.content.take() else {
-					new_items.push(Item::Verbatim(
-						syn::Error::new_spanned(
-							&inner_mod.ident,
-							"#[surrealism] on mod requires an inline module body (mod foo { ... })",
-						)
-						.to_compile_error(),
-					));
-					continue;
-				};
 
 					let (processed_items, inner_sentinels) =
 						process_mod_items(&inner_prefix, inner_items);

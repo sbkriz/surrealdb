@@ -17,8 +17,9 @@ pub struct FunctionExport {
 	/// `None` for the default export, `Some("name")` for named exports.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub name: Option<String>,
-	#[serde(with = "hex_kind_list")]
-	pub args: Vec<Kind>,
+	/// Named argument list: each entry is `(arg_name, kind)`.
+	#[serde(with = "hex_argument_list")]
+	pub args: Vec<(String, Kind)>,
 	#[serde(with = "hex_kind")]
 	pub returns: Kind,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -38,7 +39,11 @@ pub struct FunctionExport {
 impl FunctionExport {
 	pub fn args_display(&self) -> String {
 		self.args_text.as_ref().map(|v| v.join(", ")).unwrap_or_else(|| {
-			self.args.iter().map(|arg| format!("{arg}")).collect::<Vec<_>>().join(", ")
+			self.args
+				.iter()
+				.map(|(name, kind)| format!("{name}: {kind}"))
+				.collect::<Vec<_>>()
+				.join(", ")
 		})
 	}
 
@@ -89,19 +94,26 @@ mod hex_kind {
 	}
 }
 
-mod hex_kind_list {
+mod hex_argument_list {
 	use serde::{Deserialize, Deserializer, Serializer};
 	use surrealdb_types::Kind;
 
-	pub fn serialize<S: Serializer>(kinds: &[Kind], serializer: S) -> Result<S::Ok, S::Error> {
-		let bytes = surrealdb_types::encode_kind_list(kinds).map_err(serde::ser::Error::custom)?;
+	pub fn serialize<S: Serializer>(
+		args: &[(String, Kind)],
+		serializer: S,
+	) -> Result<S::Ok, S::Error> {
+		let pairs: Vec<(&str, Kind)> = args.iter().map(|(n, k)| (n.as_str(), k.clone())).collect();
+		let bytes =
+			surrealdb_types::encode_argument_list(&pairs).map_err(serde::ser::Error::custom)?;
 		serializer.serialize_str(&hex::encode(bytes))
 	}
 
-	pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Kind>, D::Error> {
+	pub fn deserialize<'de, D: Deserializer<'de>>(
+		deserializer: D,
+	) -> Result<Vec<(String, Kind)>, D::Error> {
 		let s = String::deserialize(deserializer)?;
 		let bytes = hex::decode(s).map_err(serde::de::Error::custom)?;
-		surrealdb_types::decode_kind_list(&bytes).map_err(serde::de::Error::custom)
+		surrealdb_types::decode_argument_list(&bytes).map_err(serde::de::Error::custom)
 	}
 }
 
@@ -115,16 +127,19 @@ mod tests {
 			functions: vec![
 				FunctionExport {
 					name: None,
-					args: vec![Kind::Int],
+					args: vec![("value".to_string(), Kind::Int)],
 					returns: Kind::Bool,
-					args_text: Some(vec!["int".to_string()]),
+					args_text: Some(vec!["value: int".to_string()]),
 					returns_text: Some("bool".to_string()),
 					writeable: false,
 					comment: Some("Checks whether a value is valid.".to_string()),
 				},
 				FunctionExport {
 					name: Some("foo::bar".to_string()),
-					args: vec![Kind::String, Kind::Array(Box::new(Kind::String), None)],
+					args: vec![
+						("input".to_string(), Kind::String),
+						("tags".to_string(), Kind::Array(Box::new(Kind::String), None)),
+					],
 					returns: Kind::Object,
 					args_text: None,
 					returns_text: None,
@@ -139,7 +154,7 @@ mod tests {
 		assert_eq!(manifest.functions.len(), parsed.functions.len());
 
 		assert!(parsed.functions[0].name.is_none());
-		assert_eq!(parsed.functions[0].args, vec![Kind::Int]);
+		assert_eq!(parsed.functions[0].args, vec![("value".to_string(), Kind::Int)]);
 		assert_eq!(parsed.functions[0].returns, Kind::Bool);
 		assert!(!parsed.functions[0].writeable);
 		assert_eq!(
@@ -149,6 +164,8 @@ mod tests {
 
 		assert_eq!(parsed.functions[1].name.as_deref(), Some("foo::bar"));
 		assert_eq!(parsed.functions[1].args.len(), 2);
+		assert_eq!(parsed.functions[1].args[0].0, "input");
+		assert_eq!(parsed.functions[1].args[1].0, "tags");
 		assert_eq!(parsed.functions[1].returns, Kind::Object);
 		assert!(parsed.functions[1].writeable);
 		assert!(parsed.functions[1].comment.is_none());
@@ -159,7 +176,7 @@ mod tests {
 		let manifest = ExportsManifest {
 			functions: vec![FunctionExport {
 				name: None,
-				args: vec![Kind::Int],
+				args: vec![("n".to_string(), Kind::Int)],
 				returns: Kind::Bool,
 				args_text: None,
 				returns_text: None,
