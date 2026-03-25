@@ -30,7 +30,10 @@ pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 			// path starting with `self` (e.g. `self::MyType`) also refers to
 			// the current module's type. Other multi-segment paths like
 			// `other::MyType` point to a different type.
-			if segments.len() == 1 && (segments[0].ident == *ident || segments[0].ident == "Self") {
+			if segments.len() == 1
+				&& type_path.path.leading_colon.is_none()
+				&& (segments[0].ident == *ident || segments[0].ident == "Self")
+			{
 				return true;
 			}
 			if segments.len() == 2 && segments[0].ident == "self" && segments[1].ident == *ident {
