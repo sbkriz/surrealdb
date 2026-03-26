@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use surrealdb_types::{
-	Datetime, Number, Object, RecordId, RecordIdKey, SurrealValue, Value, Wrapper,
+	Datetime, Number, Object, RecordId, RecordIdKey, SerdeWrapper, SurrealValue, Value,
 };
 
 #[derive(Clone, Debug, SurrealValue, Serialize, Deserialize, PartialEq, Eq)]
@@ -195,7 +195,7 @@ fn serde_wrapper_supports_tagged_enums_large_integers_and_map_keys() {
 		meta: BTreeMap::from([("n-1".to_string(), true), ("2".to_string(), false)]),
 	};
 
-	let wrapper_value = Wrapper(payload).into_value();
+	let wrapper_value = SerdeWrapper(payload).into_value();
 	let Value::Object(object) = &wrapper_value else {
 		panic!("wrapper should serialize payload as object");
 	};
@@ -204,7 +204,7 @@ fn serde_wrapper_supports_tagged_enums_large_integers_and_map_keys() {
 	assert!(matches!(object.get("attempts"), Some(Value::Number(Number::Decimal(_)))));
 	assert!(matches!(object.get("meta"), Some(Value::Object(_))));
 
-	let restored = Wrapper::<ApiPayload>::from_value(wrapper_value)
+	let restored = SerdeWrapper::<ApiPayload>::from_value(wrapper_value)
 		.expect("wrapper should deserialize payload");
 
 	assert_eq!(
@@ -231,12 +231,13 @@ fn wrapper_deserializes_unit_and_tagged_enum_forms() {
 		},
 	}
 
-	let unit = Wrapper(Kind::Alpha).into_value();
+	let unit = SerdeWrapper(Kind::Alpha).into_value();
 	assert_eq!(unit, Value::String("Alpha".to_string()));
-	let unit_back = Wrapper::<Kind>::from_value(unit).expect("unit variant should deserialize");
+	let unit_back =
+		SerdeWrapper::<Kind>::from_value(unit).expect("unit variant should deserialize");
 	assert_eq!(unit_back.0, Kind::Alpha);
 
-	let tagged = Wrapper(Kind::Beta {
+	let tagged = SerdeWrapper(Kind::Beta {
 		stage: 3,
 	})
 	.into_value();
@@ -246,7 +247,7 @@ fn wrapper_deserializes_unit_and_tagged_enum_forms() {
 	assert!(obj.contains_key("Beta"));
 
 	let tagged_back =
-		Wrapper::<Kind>::from_value(tagged).expect("struct variant should deserialize");
+		SerdeWrapper::<Kind>::from_value(tagged).expect("struct variant should deserialize");
 	assert_eq!(
 		tagged_back.0,
 		Kind::Beta {
@@ -283,7 +284,7 @@ fn object_deserializer_rejects_enum_maps_with_multiple_keys() {
 		)]))),
 	);
 
-	let err = match Wrapper::<MultiVariant>::from_value(Value::Object(bad)) {
+	let err = match SerdeWrapper::<MultiVariant>::from_value(Value::Object(bad)) {
 		Ok(_) => panic!("enum map with two keys should fail"),
 		Err(err) => err,
 	};
@@ -336,7 +337,7 @@ fn wrapper_serializes_bytes_as_value_bytes_and_roundtrips() {
 		data: vec![1, 2, 3, 4, 5],
 	};
 
-	let value = Wrapper(payload).into_value();
+	let value = SerdeWrapper(payload).into_value();
 	let Value::Object(object) = &value else {
 		panic!("binary payload should serialize as object");
 	};
@@ -347,8 +348,8 @@ fn wrapper_serializes_bytes_as_value_bytes_and_roundtrips() {
 	assert_eq!(data.len(), 5);
 	assert_eq!(data[0], Value::Number(Number::Int(1)));
 
-	let restored =
-		Wrapper::<BinaryPayload>::from_value(value).expect("binary payload should deserialize");
+	let restored = SerdeWrapper::<BinaryPayload>::from_value(value)
+		.expect("binary payload should deserialize");
 	assert_eq!(
 		restored.0,
 		BinaryPayload {
@@ -365,12 +366,12 @@ fn wrapper_reports_error_for_numeric_map_keys() {
 		meta: BTreeMap<i64, bool>,
 	}
 
-	let value = Wrapper(NumericKeyMap {
+	let value = SerdeWrapper(NumericKeyMap {
 		meta: BTreeMap::from([(-1, true)]),
 	})
 	.into_value();
 
-	let err = match Wrapper::<NumericKeyMap>::from_value(value) {
+	let err = match SerdeWrapper::<NumericKeyMap>::from_value(value) {
 		Ok(_) => panic!("numeric key map should fail roundtrip"),
 		Err(err) => err,
 	};
@@ -402,14 +403,15 @@ fn wrapper_roundtrip_for_nested_arrays_and_objects() {
 		)]),
 	};
 
-	let value = Wrapper(nested).into_value();
+	let value = SerdeWrapper(nested).into_value();
 	let Value::Object(obj) = &value else {
 		panic!("nested payload should serialize as object");
 	};
 	assert!(matches!(obj.get("items"), Some(Value::Array(_))));
 	assert!(matches!(obj.get("labels"), Some(Value::Object(_))));
 
-	let restored = Wrapper::<Nested>::from_value(value).expect("nested payload should deserialize");
+	let restored =
+		SerdeWrapper::<Nested>::from_value(value).expect("nested payload should deserialize");
 	assert_eq!(
 		restored.0,
 		Nested {
