@@ -103,11 +103,11 @@ use crate_path::CratePath;
 /// types. For example, if type `A` contains `B` and `B` contains `A`, each
 /// macro expansion only sees its own definition and cannot detect the cycle.
 ///
-/// Qualified paths like `crate::MyType` are also not treated as self-referential,
-/// because the macro cannot determine the module path of the type being derived
-/// and `crate::MyType` may refer to a different type with the same name.
-/// Similarly, qualified self paths like `<Self as Trait>::Output` are not
-/// detected since associated types are distinct from `Self`.
+/// Qualified paths like `crate::MyType` or `super::MyType` are also not treated
+/// as self-referential, because the macro cannot determine the module path of
+/// the type being derived and these paths may refer to a different type with the
+/// same name. Similarly, qualified self paths like `<Self as Trait>::Output` are
+/// not detected since associated types are distinct from `Self`.
 ///
 /// Such types will cause a stack overflow in `kind_of()` and require a manual
 /// [`SurrealValue`] implementation for at least one of the types involved.

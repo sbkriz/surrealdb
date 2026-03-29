@@ -14,12 +14,12 @@ pub use strategy::*;
 /// `ident` (or `Self`). Used by the derive macro to detect direct self-reference
 /// in field types so that `kind_of()` can emit `Kind::Any` instead of recursing.
 ///
-/// Only single-segment (unqualified) paths are considered a match.
-/// Module-qualified paths like `other::MyType` are **not** treated as
-/// self-referential even if the last segment matches, because they refer to a
-/// different type in a different module. Generic arguments of all paths are
-/// still recursed into so that `Box<MyType>` or `other::Container<MyType>` are
-/// correctly detected.
+/// Single-segment unqualified paths (`MyType`, `Self`) and two-segment
+/// `self::TypeName` paths are considered a direct match. Other module-qualified
+/// paths like `other::MyType` are **not** treated as self-referential even if
+/// the last segment matches, because they refer to a different type in a
+/// different module. Generic arguments of all paths are still recursed into so
+/// that `Box<MyType>` or `other::Container<MyType>` are correctly detected.
 pub fn type_contains_ident(ty: &syn::Type, ident: &syn::Ident) -> bool {
 	match ty {
 		syn::Type::Path(type_path) => {
