@@ -8,7 +8,13 @@ timeout = 5000
 reason = "VERSION clause shows historical schema state for indexes defined after the version timestamp"
 
 [[test.results]]
-value = "[{ id: product:1, name: 'Widget', price: 10 }, { id: product:2, name: 'Gadget', price: 20 }]"
+value = "NONE"
+
+[[test.results]]
+value = "[{ id: product:1, name: 'Widget', price: 10 }]"
+
+[[test.results]]
+value = "[{ id: product:2, name: 'Gadget', price: 20 }]"
 
 [[test.results]]
 value = "NONE"
@@ -20,10 +26,14 @@ value = "NONE"
 value = "NONE"
 
 [[test.results]]
-value = "{ events: {}, fields: {}, indexes: {}, lives: {}, tables: {} }"
+value = "NONE"
 
 [[test.results]]
-match = "{ events: {}, fields: {}, indexes: { idx_price: 'DEFINE INDEX idx_price ON product FIELDS price' }, lives: {}, tables: {} }"
+value = "{ events: {  }, fields: {  }, indexes: {  }, lives: {  }, tables: {  } }"
+
+[[test.results]]
+value = "{ events: {  }, fields: {  }, indexes: { idx_price: 'DEFINE INDEX idx_price ON product FIELDS price' }, lives: {  }, tables: {  } }"
+
 */
 
 -- Create table and data

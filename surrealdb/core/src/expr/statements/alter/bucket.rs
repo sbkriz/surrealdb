@@ -31,7 +31,7 @@ impl AlterBucketStatement {
 		let (ns, db) = ctx.expect_ns_db_ids(opt).await?;
 		let txn = ctx.tx();
 
-		let mut bu = match txn.get_db_bucket(ns, db, &self.name).await? {
+		let mut bu = match txn.get_db_bucket(ns, db, &self.name, None).await? {
 			Some(v) => v.deref().clone(),
 			None => {
 				if self.if_exists {

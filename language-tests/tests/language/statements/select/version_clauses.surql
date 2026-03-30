@@ -17,6 +17,9 @@ value = "NONE"
 value = "NONE"
 
 [[test.results]]
+value = "NONE"
+
+[[test.results]]
 value = "'OK'"
 
 [[test.results]]
@@ -39,6 +42,7 @@ value = "[{ id: item:3, name: 'Gamma', score: 30 }, { id: item:4, name: 'Delta',
 
 [[test.results]]
 value = "[{ id: item:4, name: 'Delta', score: 40 }, { id: item:3, name: 'Gamma', score: 30 }]"
+
 */
 
 -- Create the initial batch of records

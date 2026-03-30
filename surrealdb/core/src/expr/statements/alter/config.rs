@@ -54,7 +54,7 @@ impl AlterConfigStatement {
 			ConfigInner::Default(_) => "default",
 		};
 
-		let existing = txn.get_db_config(ns, db, config_name).await?;
+		let existing = txn.get_db_config(ns, db, config_name, None).await?;
 
 		if existing.is_none() && self.if_exists {
 			return Ok(Value::None);

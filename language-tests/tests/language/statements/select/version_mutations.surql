@@ -8,13 +8,28 @@ timeout = 5000
 reason = "VERSION clause correctly shows historical state before UPDATE and DELETE mutations"
 
 [[test.results]]
-value = "[{ id: person:1, name: 'Alice' }, { id: person:2, name: 'Bob' }, { id: person:3, name: 'Charlie' }]"
+value = "[{ id: person:1, name: 'Alice' }]"
+
+[[test.results]]
+value = "[{ id: person:2, name: 'Bob' }]"
+
+[[test.results]]
+value = "[{ id: person:3, name: 'Charlie' }]"
 
 [[test.results]]
 value = "NONE"
 
 [[test.results]]
 value = "NONE"
+
+[[test.results]]
+value = "NONE"
+
+[[test.results]]
+value = "[{ id: person:1, name: 'Alice_v2' }]"
+
+[[test.results]]
+value = "[]"
 
 [[test.results]]
 value = "[{ id: person:1, name: 'Alice_v2' }, { id: person:3, name: 'Charlie' }]"
@@ -26,10 +41,11 @@ value = "[{ id: person:1, name: 'Alice' }, { id: person:2, name: 'Bob' }, { id: 
 value = "[{ id: person:2, name: 'Bob' }]"
 
 [[test.results]]
-value = "{ id: person:1, name: 'Alice' }"
+value = "[{ id: person:1, name: 'Alice' }]"
 
 [[test.results]]
-value = "{ id: person:1, name: 'Alice_v2' }"
+value = "[{ id: person:1, name: 'Alice_v2' }]"
+
 */
 
 -- Create initial records

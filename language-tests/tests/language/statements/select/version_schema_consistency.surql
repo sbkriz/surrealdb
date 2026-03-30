@@ -8,6 +8,9 @@ timeout = 5000
 reason = "VERSION clause provides consistent schema and data snapshots at the same point in time"
 
 [[test.results]]
+value = "NONE"
+
+[[test.results]]
 value = "[{ id: t1:1, name: 'Alice' }]"
 
 [[test.results]]
@@ -20,19 +23,26 @@ value = "NONE"
 value = "NONE"
 
 [[test.results]]
+value = "NONE"
+
+[[test.results]]
+value = "[{ id: t1:2, name: 'Bob' }]"
+
+[[test.results]]
 value = "[{ id: t1:1, name: 'Alice' }, { id: t1:2, name: 'Bob' }]"
 
 [[test.results]]
 value = "[{ id: t1:1, name: 'Alice' }]"
 
 [[test.results]]
-value = "{ events: {}, fields: {}, indexes: {}, lives: {}, tables: {} }"
+value = "{ events: {  }, fields: {  }, indexes: {  }, lives: {  }, tables: {  } }"
 
 [[test.results]]
-match = "{ events: {}, fields: { name: 'DEFINE FIELD name ON t1 TYPE string PERMISSIONS FULL' }, indexes: {}, lives: {}, tables: {} }"
+value = "{ events: {  }, fields: { name: 'DEFINE FIELD name ON t1 TYPE string PERMISSIONS FULL' }, indexes: {  }, lives: {  }, tables: {  } }"
 
 [[test.results]]
 value = "[{ id: t1:1, name: 'Alice' }, { id: t1:2, name: 'Bob' }]"
+
 */
 
 -- Create table and initial data

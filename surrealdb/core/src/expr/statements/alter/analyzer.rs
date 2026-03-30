@@ -29,7 +29,7 @@ impl AlterAnalyzerStatement {
 		let (ns, db) = ctx.expect_ns_db_ids(opt).await?;
 		let txn = ctx.tx();
 
-		let mut az = match txn.get_db_analyzer(ns, db, &self.name).await {
+		let mut az = match txn.get_db_analyzer(ns, db, &self.name, None).await {
 			Ok(v) => v.deref().clone(),
 			Err(e) => {
 				if self.if_exists {

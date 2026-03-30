@@ -239,25 +239,25 @@ impl Transaction {
 
 		// Output APIS
 		if cfg.apis {
-			let apis = self.all_db_apis(ns, db).await?;
+			let apis = self.all_db_apis(ns, db, None).await?;
 			self.export_section("APIS", apis.iter(), chn).await?;
 		}
 
 		// Output BUCKETS
 		if cfg.buckets {
-			let buckets = self.all_db_buckets(ns, db).await?;
+			let buckets = self.all_db_buckets(ns, db, None).await?;
 			self.export_section("BUCKETS", buckets.iter(), chn).await?;
 		}
 
 		// Output MODULES
 		if cfg.modules {
-			let modules = self.all_db_modules(ns, db).await?;
+			let modules = self.all_db_modules(ns, db, None).await?;
 			self.export_section("MODULES", modules.iter(), chn).await?;
 		}
 
 		// Output CONFIGS
 		if cfg.configs {
-			let configs = self.all_db_configs(ns, db).await?;
+			let configs = self.all_db_configs(ns, db, None).await?;
 			self.export_section("CONFIGS", configs.iter(), chn).await?;
 		}
 

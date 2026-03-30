@@ -2246,10 +2246,12 @@ impl<'ctx> Planner<'ctx> {
 		};
 		let cond = cond.as_ref()?;
 
-		let ns_def = txn.get_ns_by_name(ns_name).await.ok()??;
-		let db_def = txn.get_db_by_name(ns_name, db_name).await.ok()??;
-		let indexes =
-			txn.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name).await.ok()?;
+		let ns_def = txn.get_ns_by_name(ns_name, None).await.ok()??;
+		let db_def = txn.get_db_by_name(ns_name, db_name, None).await.ok()??;
+		let indexes = txn
+			.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name, None)
+			.await
+			.ok()?;
 
 		if indexes.is_empty() {
 			return None;
