@@ -593,7 +593,8 @@ impl Transactable for Transaction {
 			inner.get_pinned_opt(key, &self.read_options(version, inner))
 		} else {
 			inner.get_pinned_opt(key, &self.read_options)
-		}?.is_some();
+		}?
+		.is_some();
 		// Return result
 		Ok(res)
 	}
