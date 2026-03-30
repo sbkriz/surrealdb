@@ -244,10 +244,6 @@ criteria = "safe-to-deploy"
 version = "5.0.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.bstr]]
-version = "1.12.1"
-criteria = "safe-to-run"
-
 [[exemptions.bytecheck]]
 version = "0.6.12"
 criteria = "safe-to-deploy"
@@ -294,10 +290,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.cmake]]
 version = "0.1.57"
-criteria = "safe-to-deploy"
-
-[[exemptions.codespan-reporting]]
-version = "0.13.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.combine]]
@@ -860,10 +852,6 @@ criteria = "safe-to-deploy"
 version = "0.4.14"
 criteria = "safe-to-deploy"
 
-[[exemptions.log]]
-version = "0.4.29"
-criteria = "safe-to-deploy"
-
 [[exemptions.lru-slab]]
 version = "0.1.2"
 criteria = "safe-to-deploy"
@@ -874,10 +862,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.lz4-sys]]
 version = "1.11.1+lz4-1.10.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.lz4_flex]]
-version = "0.12.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.lz4_flex]]
@@ -1058,10 +1042,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.papaya]]
 version = "0.2.3"
-criteria = "safe-to-deploy"
-
-[[exemptions.parking]]
-version = "2.2.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.parking_lot_core]]
