@@ -37,7 +37,7 @@ impl AlterSequenceStatement {
 		// Fetch the transaction
 		let txn = ctx.tx();
 		// Get the sequence definition
-		let mut sq = match txn.get_db_sequence(ns, db, &self.name).await {
+		let mut sq = match txn.get_db_sequence(ns, db, &self.name, None).await {
 			Ok(tb) => tb.deref().clone(),
 			Err(e) => {
 				if self.if_exists && matches!(e.downcast_ref(), Some(Error::SeqNotFound { .. })) {

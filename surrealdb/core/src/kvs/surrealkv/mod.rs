@@ -6,16 +6,15 @@ mod sync;
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use surrealkv::{
 	Durability, HistoryOptions, LSMIterator, Mode, Transaction as Tx, Tree, TreeBuilder,
 };
 use sync::{BackgroundFlusher, CommitCoordinator};
 use tokio::sync::RwLock;
 
-use std::time::Duration;
-
-use chrono::{DateTime, Utc};
 use super::Direction;
 use super::api::ScanLimit;
 use super::config::{SurrealKvConfig, SyncMode};
@@ -23,7 +22,7 @@ use super::err::{Error, Result};
 use crate::key::debug::Sprintable;
 use crate::kvs::api::Transactable;
 use crate::kvs::timestamp::{
-	BoxTimeStamp, BoxTimeStampImpl, TimeStamp, TimeStampImpl, MAX_TIMESTAMP_BYTES,
+	BoxTimeStamp, BoxTimeStampImpl, MAX_TIMESTAMP_BYTES, TimeStamp, TimeStampImpl,
 };
 use crate::kvs::{Key, Val};
 

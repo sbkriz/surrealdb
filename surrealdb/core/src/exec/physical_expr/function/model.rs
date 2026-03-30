@@ -67,7 +67,7 @@ impl PhysicalExpr for ModelFunctionExec {
 		// Get the model definition
 		let val = ctx
 			.txn()
-			.get_db_model(ns_id, db_id, &self.model.name, &self.model.version)
+			.get_db_model(ns_id, db_id, &self.model.name, &self.model.version, None)
 			.await?
 			.ok_or_else(|| Error::MlNotFound {
 				name: format!("{}<{}>", self.model.name, self.model.version),

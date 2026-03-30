@@ -69,7 +69,7 @@ impl PhysicalExpr for SurrealismModuleExec {
 		let db_id = db_ctx.db.database_id;
 
 		// Get the module definition
-		let val = ctx.txn().get_db_module(ns_id, db_id, &mod_name).await?;
+		let val = ctx.txn().get_db_module(ns_id, db_id, &mod_name, None).await?;
 
 		// Check permissions
 		check_permission(&val.permissions, &mod_name, &ctx).await?;

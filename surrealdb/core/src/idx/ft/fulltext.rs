@@ -171,7 +171,7 @@ impl FullTextIndex {
 		ikb: IndexKeyBase,
 		p: &FullTextParams,
 	) -> Result<Self> {
-		let az = tx.get_db_analyzer(ikb.0.ns, ikb.0.db, &p.analyzer).await?;
+		let az = tx.get_db_analyzer(ikb.0.ns, ikb.0.db, &p.analyzer, None).await?;
 		ixs.mappers().check(&az).await?;
 		Self::with_analyzer(ixs, az, ikb, p)
 	}

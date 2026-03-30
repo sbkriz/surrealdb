@@ -568,7 +568,7 @@ impl Building {
 		// If the index is not found, we continue — the prepare_remove flag can only
 		// be set by REMOVE INDEX, which runs in a separate transaction.
 		if let Some(ix) = tx
-			.get_tb_index(self.ix_key.ns, self.ix_key.db, &self.ix.table_name, &self.ix.name)
+			.get_tb_index(self.ix_key.ns, self.ix_key.db, &self.ix.table_name, &self.ix.name, None)
 			.await?
 		{
 			ix.expect_not_prepare_remove()?;

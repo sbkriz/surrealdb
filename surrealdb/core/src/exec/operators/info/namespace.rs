@@ -108,30 +108,30 @@ async fn execute_namespace_info(ctx: &ExecutionContext, structured: bool) -> Res
 	// Create the result set
 	if structured {
 		let object = map! {
-			"accesses".to_string() => process(txn.all_ns_accesses(ns).await?),
-			"databases".to_string() => process(txn.all_db(ns).await?),
-			"users".to_string() => process(txn.all_ns_users(ns).await?),
+			"accesses".to_string() => process(txn.all_ns_accesses(ns, None).await?),
+			"databases".to_string() => process(txn.all_db(ns, None).await?),
+			"users".to_string() => process(txn.all_ns_users(ns, None).await?),
 		};
 		Ok(Value::Object(Object(object)))
 	} else {
 		let object = map! {
 			"accesses".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_ns_accesses(ns).await?.iter() {
+				for v in txn.all_ns_accesses(ns, None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()
 			},
 			"databases".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_db(ns).await?.iter() {
+				for v in txn.all_db(ns, None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()
 			},
 			"users".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_ns_users(ns).await?.iter() {
+				for v in txn.all_ns_users(ns, None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()

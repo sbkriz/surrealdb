@@ -65,7 +65,7 @@ impl Param {
 		ns_id: NamespaceId,
 		db_id: DatabaseId,
 	) -> anyhow::Result<Value> {
-		match txn.get_db_param(ns_id, db_id, &self.0).await {
+		match txn.get_db_param(ns_id, db_id, &self.0, None).await {
 			Ok(param_def) => {
 				// Check permissions
 				if ctx.exec_ctx.should_check_perms(Action::View)? {
@@ -213,7 +213,7 @@ impl PhysicalExpr for Param {
 
 			let txn = ctx.exec_ctx.txn();
 			// Look up database definition by name to get the IDs
-			if let Ok(Some(db_def)) = txn.get_db_by_name(ns_name, db_name).await {
+			if let Ok(Some(db_def)) = txn.get_db_by_name(ns_name, db_name, None).await {
 				let ns_id = db_def.namespace_id;
 				let db_id = db_def.database_id;
 

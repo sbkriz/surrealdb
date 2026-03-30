@@ -788,7 +788,7 @@ impl SchemaCache {
 		table: &TableName,
 		tx: &Transaction,
 	) -> Result<Self> {
-		let indexes = tx.all_tb_indexes(ns, db, table).await?;
+		let indexes = tx.all_tb_indexes(ns, db, table, None).await?;
 		let fields = tx.all_tb_fields(ns, db, table, None).await?;
 		Ok(Self {
 			indexes,

@@ -258,7 +258,7 @@ impl<'a> IndexOperation<'a> {
 		p: &HnswParams,
 	) -> Result<()> {
 		let tx = ctx.tx();
-		if let Some(tb) = tx.get_tb(ikb.ns(), ikb.db(), ikb.table()).await? {
+		if let Some(tb) = tx.get_tb(ikb.ns(), ikb.db(), ikb.table(), None).await? {
 			let hnsw = ixs.get_index_hnsw(ikb.ns(), ikb.db(), ctx, tb.table_id, ix, p).await?;
 			hnsw.index_pendings(ctx).await?;
 		}

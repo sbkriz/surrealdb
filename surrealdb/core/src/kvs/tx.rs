@@ -968,7 +968,13 @@ impl RootProvider for Transaction {
 impl NamespaceProvider for Transaction {
 	/// Retrieve all namespace definitions in a datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_ns(&self) -> Result<Arc<[NamespaceDefinition]>> {
+	async fn all_ns(&self, version: Option<u64>) -> Result<Arc<[NamespaceDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::root::ns::prefix();
+			let end = crate::key::root::ns::suffix();
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Nss;
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_nss(),
@@ -984,7 +990,18 @@ impl NamespaceProvider for Transaction {
 		}
 	}
 
-	async fn get_ns_by_name(&self, ns: &str) -> Result<Option<Arc<NamespaceDefinition>>> {
+	async fn get_ns_by_name(
+		&self,
+		ns: &str,
+		version: Option<u64>,
+	) -> Result<Option<Arc<NamespaceDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::root::ns::new(ns);
+			let Some(ns) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(ns)));
+		}
 		let qey = cache::tx::Lookup::NsByName(ns);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -1003,7 +1020,7 @@ impl NamespaceProvider for Transaction {
 	}
 
 	async fn expect_ns_by_name(&self, ns: &str) -> Result<Arc<NamespaceDefinition>> {
-		match self.get_ns_by_name(ns).await? {
+		match self.get_ns_by_name(ns, None).await? {
 			Some(val) => Ok(val),
 			None => anyhow::bail!(Error::NsNotFound {
 				name: ns.to_owned(),
@@ -1039,7 +1056,17 @@ impl NamespaceProvider for Transaction {
 impl DatabaseProvider for Transaction {
 	/// Retrieve all database definitions for a specific namespace.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_db(&self, ns: NamespaceId) -> Result<Arc<[DatabaseDefinition]>> {
+	async fn all_db(
+		&self,
+		ns: NamespaceId,
+		version: Option<u64>,
+	) -> Result<Arc<[DatabaseDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::namespace::db::prefix(ns)?;
+			let end = crate::key::namespace::db::suffix(ns)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Dbs(ns);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_dbs(),
@@ -1057,12 +1084,27 @@ impl DatabaseProvider for Transaction {
 
 	/// Retrieve a specific database definition.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn get_db_by_name(&self, ns: &str, db: &str) -> Result<Option<Arc<DatabaseDefinition>>> {
+	async fn get_db_by_name(
+		&self,
+		ns: &str,
+		db: &str,
+		version: Option<u64>,
+	) -> Result<Option<Arc<DatabaseDefinition>>> {
+		if version.is_some() {
+			let Some(ns) = self.get_ns_by_name(ns, None).await? else {
+				return Ok(None);
+			};
+			let key = crate::key::namespace::db::new(ns.namespace_id, db);
+			let Some(db_def) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(db_def)));
+		}
 		let qey = cache::tx::Lookup::DbByName(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
 			None => {
-				let Some(ns) = self.get_ns_by_name(ns).await? else {
+				let Some(ns) = self.get_ns_by_name(ns, None).await? else {
 					return Ok(None);
 				};
 
@@ -1098,7 +1140,7 @@ impl DatabaseProvider for Transaction {
 			}
 			// The entry is not in the cache
 			None => {
-				let db_def = self.get_db_by_name(ns, db).await?;
+				let db_def = self.get_db_by_name(ns, db, None).await?;
 				if let Some(db_def) = db_def {
 					return Ok(db_def);
 				}
@@ -1106,7 +1148,7 @@ impl DatabaseProvider for Transaction {
 				let ns_def = if upwards {
 					self.get_or_add_ns(ctx, ns).await?
 				} else {
-					match self.get_ns_by_name(ns).await? {
+					match self.get_ns_by_name(ns, None).await? {
 						Some(ns_def) => ns_def,
 						None => {
 							return Err(Error::NsNotFound {
@@ -1154,7 +1196,7 @@ impl DatabaseProvider for Transaction {
 	}
 
 	async fn del_db(&self, ns: &str, db: &str, expunge: bool) -> Result<Option<()>> {
-		let Some(db) = self.get_db_by_name(ns, db).await? else {
+		let Some(db) = self.get_db_by_name(ns, db, None).await? else {
 			return Ok(None);
 		};
 		let key = crate::key::namespace::db::new(db.namespace_id, &db.name);
@@ -1184,7 +1226,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::AnalyzerDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::az::prefix(ns, db)?;
+			let end = crate::key::database::az::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Azs(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_azs(),
@@ -1206,7 +1255,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::SequenceDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::sq::prefix(ns, db)?;
+			let end = crate::key::database::sq::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Sqs(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_sqs(),
@@ -1228,7 +1284,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::FunctionDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::fc::prefix(ns, db)?;
+			let end = crate::key::database::fc::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Fcs(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_fcs(),
@@ -1250,7 +1313,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::ModuleDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::md::prefix(ns, db)?;
+			let end = crate::key::database::md::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Mds(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_mds(),
@@ -1272,7 +1342,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::ParamDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::pa::prefix(ns, db)?;
+			let end = crate::key::database::pa::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Pas(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_pas(),
@@ -1294,7 +1371,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::MlModelDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::ml::prefix(ns, db)?;
+			let end = crate::key::database::ml::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Mls(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_mls(),
@@ -1316,7 +1400,14 @@ impl DatabaseProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[ConfigDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::cg::prefix(ns, db)?;
+			let end = crate::key::database::cg::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Cgs(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_cgs(),
@@ -1340,7 +1431,15 @@ impl DatabaseProvider for Transaction {
 		db: DatabaseId,
 		ml: &str,
 		vn: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::MlModelDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::ml::new(ns, db, ml, vn);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ml(ns, db, ml, vn);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -1364,7 +1463,15 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		az: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::AnalyzerDefinition>> {
+		if version.is_some() {
+			let key = crate::key::database::az::new(ns, db, az);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::AzNotFound {
+				name: az.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Az(ns, db, az);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1388,7 +1495,15 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		sq: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::SequenceDefinition>> {
+		if version.is_some() {
+			let key = Sq::new(ns, db, sq);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::SeqNotFound {
+				name: sq.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Sq(ns, db, sq);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1412,7 +1527,15 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		fc: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::FunctionDefinition>> {
+		if version.is_some() {
+			let key = crate::key::database::fc::new(ns, db, fc);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::FcNotFound {
+				name: fc.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Fc(ns, db, fc);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1436,7 +1559,15 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		md: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::ModuleDefinition>> {
+		if version.is_some() {
+			let key = crate::key::database::md::new(ns, db, md);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::MdNotFound {
+				name: md.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Md(ns, db, md);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1460,7 +1591,15 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		pa: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::ParamDefinition>> {
+		if version.is_some() {
+			let key = crate::key::database::pa::new(ns, db, pa);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::PaNotFound {
+				name: pa.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Pa(ns, db, pa);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1484,7 +1623,16 @@ impl DatabaseProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		cg: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<ConfigDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::cg::new(ns, db, cg);
+			if let Some(val) = self.get(&key, version).await? {
+				return Ok(Some(Arc::new(val)));
+			} else {
+				return Ok(None);
+			}
+		}
 		let qey = cache::tx::Lookup::Cg(ns, db, cg);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Option::Some),
@@ -1578,13 +1726,19 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		version: Option<u64>,
 	) -> Result<Arc<[TableDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::tb::prefix(ns, db)?;
+			let end = crate::key::database::tb::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Tbs(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_tbs(),
 			None => {
 				let beg = crate::key::database::tb::prefix(ns, db)?;
 				let end = crate::key::database::tb::suffix(ns, db)?;
-				let val = self.getr(beg..end, version).await?;
+				let val = self.getr(beg..end, None).await?;
 				let val = util::deserialize_cache(val.iter().map(|x| x.1.as_slice()))?;
 				let entry = cache::tx::Entry::Tbs(val.clone());
 				self.cache.insert(qey, entry);
@@ -1600,7 +1754,14 @@ impl TableProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::TableDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::table::ft::prefix(ns, db, tb)?;
+			let end = crate::key::table::ft::suffix(ns, db, tb)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Fts(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_fts(),
@@ -1617,7 +1778,7 @@ impl TableProvider for Transaction {
 	}
 
 	/// Get or add a table with a default configuration, only if we are in
-	/// dynamic mode.
+	/// dynamic mode. When a version is specified, skips the auto-create path.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self, ctx))]
 	async fn get_or_add_tb(
 		&self,
@@ -1625,14 +1786,31 @@ impl TableProvider for Transaction {
 		ns: &str,
 		db: &str,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Arc<TableDefinition>> {
+		if version.is_some() {
+			let Some(db_def) = self.get_db_by_name(ns, db, None).await? else {
+				return Err(anyhow::anyhow!(Error::DbNotFound {
+					name: db.to_owned(),
+				}));
+			};
+			let table_key =
+				crate::key::database::tb::new(db_def.namespace_id, db_def.database_id, tb);
+			if let Some(tb_def) = self.get(&table_key, version).await? {
+				return Ok(Arc::new(tb_def));
+			}
+			return Err(Error::TbNotFound {
+				name: tb.to_owned(),
+			}
+			.into());
+		}
 		let qey = cache::tx::Lookup::TbByName(ns, db, tb);
 		match self.cache.get(&qey) {
 			// The entry is in the cache
 			Some(val) => val.try_into_type(),
 			// The entry is not in the cache
 			None => {
-				let Some(db_def) = self.get_db_by_name(ns, db).await? else {
+				let Some(db_def) = self.get_db_by_name(ns, db, None).await? else {
 					return Err(anyhow::anyhow!(Error::DbNotFound {
 						name: db.to_owned(),
 					}));
@@ -1671,12 +1849,23 @@ impl TableProvider for Transaction {
 		ns: &str,
 		db: &str,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Option<Arc<TableDefinition>>> {
+		if version.is_some() {
+			let Some(db) = self.get_db_by_name(ns, db, None).await? else {
+				return Ok(None);
+			};
+			let key = crate::key::database::tb::new(db.namespace_id, db.database_id, tb);
+			let Some(tb) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(tb)));
+		}
 		let qey = cache::tx::Lookup::TbByName(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
 			None => {
-				let Some(db) = self.get_db_by_name(ns, db).await? else {
+				let Some(db) = self.get_db_by_name(ns, db, None).await? else {
 					return Ok(None);
 				};
 
@@ -1735,7 +1924,7 @@ impl TableProvider for Transaction {
 	}
 
 	async fn del_tb(&self, ns: &str, db: &str, tb: &TableName) -> Result<()> {
-		let Some(tb) = self.get_tb_by_name(ns, db, tb).await? else {
+		let Some(tb) = self.get_tb_by_name(ns, db, tb, None).await? else {
 			return Err(Error::TbNotFound {
 				name: tb.clone(),
 			}
@@ -1759,7 +1948,7 @@ impl TableProvider for Transaction {
 	}
 
 	async fn clr_tb(&self, ns: &str, db: &str, tb: &TableName) -> Result<()> {
-		let Some(tb) = self.get_tb_by_name(ns, db, tb).await? else {
+		let Some(tb) = self.get_tb_by_name(ns, db, tb, None).await? else {
 			return Err(Error::TbNotFound {
 				name: tb.clone(),
 			}
@@ -1789,7 +1978,14 @@ impl TableProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::EventDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::table::ev::prefix(ns, db, tb)?;
+			let end = crate::key::table::ev::suffix(ns, db, tb)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Evs(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_evs(),
@@ -1814,13 +2010,19 @@ impl TableProvider for Transaction {
 		tb: &TableName,
 		version: Option<u64>,
 	) -> Result<Arc<[catalog::FieldDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::table::fd::prefix(ns, db, tb)?;
+			let end = crate::key::table::fd::suffix(ns, db, tb)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Fds(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_fds(),
 			None => {
 				let beg = crate::key::table::fd::prefix(ns, db, tb)?;
 				let end = crate::key::table::fd::suffix(ns, db, tb)?;
-				let val = self.getr(beg..end, version).await?;
+				let val = self.getr(beg..end, None).await?;
 				let val = util::deserialize_cache(val.iter().map(|x| x.1.as_slice()))?;
 				let entry = cache::tx::Entry::Fds(val.clone());
 				self.cache.insert(qey, entry);
@@ -1836,7 +2038,14 @@ impl TableProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::IndexDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::table::ix::prefix(ns, db, tb)?;
+			let end = crate::key::table::ix::suffix(ns, db, tb)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Ixs(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_ixs(),
@@ -1859,7 +2068,14 @@ impl TableProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::SubscriptionDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::table::lq::prefix(ns, db, tb)?;
+			let end = crate::key::table::lq::suffix(ns, db, tb)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Lvs(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_lvs(),
@@ -1882,7 +2098,15 @@ impl TableProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		tb: &TableName,
+		version: Option<u64>,
 	) -> Result<Option<Arc<TableDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::tb::new(ns, db, tb);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Tb(ns, db, tb);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -1907,7 +2131,15 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		tb: &TableName,
 		ev: &str,
+		version: Option<u64>,
 	) -> Result<Arc<catalog::EventDefinition>> {
+		if version.is_some() {
+			let key = crate::key::table::ev::new(ns, db, tb, ev);
+			let val = self.get(&key, version).await?.ok_or_else(|| Error::EvNotFound {
+				name: ev.to_owned(),
+			})?;
+			return Ok(Arc::new(val));
+		}
 		let qey = cache::tx::Lookup::Ev(ns, db, tb, ev);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type(),
@@ -1932,7 +2164,15 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		tb: &TableName,
 		fd: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::FieldDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::table::fd::new(ns, db, tb, fd);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Fd(ns, db, tb, fd);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -1979,7 +2219,15 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		tb: &TableName,
 		ix: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::IndexDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::table::ix::new(ns, db, tb, ix);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ix(ns, db, tb, ix);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2002,13 +2250,14 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		tb: &TableName,
 		ix: IndexId,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::IndexDefinition>>> {
 		let key = crate::key::table::ix::IndexNameLookupKey::new(ns, db, tb, ix);
-		let Some(index_name) = self.get(&key, None).await? else {
+		let Some(index_name) = self.get(&key, version).await? else {
 			return Ok(None);
 		};
 
-		self.get_tb_index(ns, db, tb, &index_name).await
+		self.get_tb_index(ns, db, tb, &index_name, version).await
 	}
 
 	async fn put_tb_index(
@@ -2044,7 +2293,7 @@ impl TableProvider for Transaction {
 		ix: &str,
 	) -> Result<()> {
 		// Get the index definition
-		let Some(ix) = self.get_tb_index(ns, db, tb, ix).await? else {
+		let Some(ix) = self.get_tb_index(ns, db, tb, ix, None).await? else {
 			return Ok(());
 		};
 
@@ -2136,9 +2385,10 @@ impl TableProvider for Transaction {
 		db: DatabaseId,
 		tb: &TableName,
 		id: &RecordIdKey,
+		version: Option<u64>,
 	) -> Result<bool> {
 		let key = crate::key::record::new(ns, db, tb, id);
-		Ok(self.exists(&key, None).await?)
+		Ok(self.exists(&key, version).await?)
 	}
 
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
@@ -2209,7 +2459,13 @@ impl TableProvider for Transaction {
 impl UserProvider for Transaction {
 	/// Retrieve all ROOT level users in a datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_root_users(&self) -> Result<Arc<[catalog::UserDefinition]>> {
+	async fn all_root_users(&self, version: Option<u64>) -> Result<Arc<[catalog::UserDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::root::us::prefix();
+			let end = crate::key::root::us::suffix();
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Rus;
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_rus(),
@@ -2227,7 +2483,17 @@ impl UserProvider for Transaction {
 
 	/// Retrieve all namespace user definitions for a specific namespace.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_ns_users(&self, ns: NamespaceId) -> Result<Arc<[catalog::UserDefinition]>> {
+	async fn all_ns_users(
+		&self,
+		ns: NamespaceId,
+		version: Option<u64>,
+	) -> Result<Arc<[catalog::UserDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::namespace::us::prefix(ns)?;
+			let end = crate::key::namespace::us::suffix(ns)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Nus(ns);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_nus(),
@@ -2249,7 +2515,14 @@ impl UserProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::UserDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::us::prefix(ns, db)?;
+			let end = crate::key::database::us::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Dus(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_dus(),
@@ -2267,7 +2540,18 @@ impl UserProvider for Transaction {
 
 	/// Retrieve a specific root user definition.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn get_root_user(&self, us: &str) -> Result<Option<Arc<catalog::UserDefinition>>> {
+	async fn get_root_user(
+		&self,
+		us: &str,
+		version: Option<u64>,
+	) -> Result<Option<Arc<catalog::UserDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::root::us::new(us);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ru(us);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2290,7 +2574,15 @@ impl UserProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		us: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::UserDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::namespace::us::new(ns, us);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Nu(ns, us);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2315,7 +2607,15 @@ impl UserProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		us: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::UserDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::us::new(ns, db, us);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Du(ns, db, us);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2392,7 +2692,16 @@ impl UserProvider for Transaction {
 impl AuthorisationProvider for Transaction {
 	/// Retrieve all ROOT level accesses in a datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_root_accesses(&self) -> Result<Arc<[catalog::AccessDefinition]>> {
+	async fn all_root_accesses(
+		&self,
+		version: Option<u64>,
+	) -> Result<Arc<[catalog::AccessDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::root::ac::prefix();
+			let end = crate::key::root::ac::suffix();
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Ras;
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_ras(),
@@ -2410,7 +2719,17 @@ impl AuthorisationProvider for Transaction {
 
 	/// Retrieve all root access grants in a datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_root_access_grants(&self, ra: &str) -> Result<Arc<[catalog::AccessGrant]>> {
+	async fn all_root_access_grants(
+		&self,
+		ra: &str,
+		version: Option<u64>,
+	) -> Result<Arc<[catalog::AccessGrant]>> {
+		if version.is_some() {
+			let beg = crate::key::root::access::gr::prefix(ra)?;
+			let end = crate::key::root::access::gr::suffix(ra)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Rgs(ra);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_rag(),
@@ -2428,7 +2747,17 @@ impl AuthorisationProvider for Transaction {
 
 	/// Retrieve all namespace access definitions for a specific namespace.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_ns_accesses(&self, ns: NamespaceId) -> Result<Arc<[catalog::AccessDefinition]>> {
+	async fn all_ns_accesses(
+		&self,
+		ns: NamespaceId,
+		version: Option<u64>,
+	) -> Result<Arc<[catalog::AccessDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::namespace::ac::prefix(ns)?;
+			let end = crate::key::namespace::ac::suffix(ns)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Nas(ns);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_nas(),
@@ -2450,7 +2779,14 @@ impl AuthorisationProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		na: &str,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::AccessGrant]>> {
+		if version.is_some() {
+			let beg = crate::key::namespace::access::gr::prefix(ns, na)?;
+			let end = crate::key::namespace::access::gr::suffix(ns, na)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Ngs(ns, na);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_nag(),
@@ -2472,7 +2808,14 @@ impl AuthorisationProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::AccessDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::ac::prefix(ns, db)?;
+			let end = crate::key::database::ac::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Das(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_das(),
@@ -2495,7 +2838,14 @@ impl AuthorisationProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		da: &str,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::AccessGrant]>> {
+		if version.is_some() {
+			let beg = crate::key::database::access::gr::prefix(ns, db, da)?;
+			let end = crate::key::database::access::gr::suffix(ns, db, da)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Dgs(ns, db, da);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_dag(),
@@ -2513,7 +2863,18 @@ impl AuthorisationProvider for Transaction {
 
 	/// Retrieve a specific root access definition.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn get_root_access(&self, ra: &str) -> Result<Option<Arc<catalog::AccessDefinition>>> {
+	async fn get_root_access(
+		&self,
+		ra: &str,
+		version: Option<u64>,
+	) -> Result<Option<Arc<catalog::AccessDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::root::ac::new(ra);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ra(ra);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2536,7 +2897,15 @@ impl AuthorisationProvider for Transaction {
 		&self,
 		ac: &str,
 		gr: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::AccessGrant>>> {
+		if version.is_some() {
+			let key = crate::key::root::access::gr::new(ac, gr);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Rg(ac, gr);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2559,7 +2928,15 @@ impl AuthorisationProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		na: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::AccessDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::namespace::ac::new(ns, na);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Na(ns, na);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2583,7 +2960,15 @@ impl AuthorisationProvider for Transaction {
 		ns: NamespaceId,
 		ac: &str,
 		gr: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::AccessGrant>>> {
+		if version.is_some() {
+			let key = crate::key::namespace::access::gr::new(ns, ac, gr);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ng(ns, ac, gr);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2607,7 +2992,15 @@ impl AuthorisationProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		da: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::AccessDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::ac::new(ns, db, da);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Da(ns, db, da);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2632,7 +3025,15 @@ impl AuthorisationProvider for Transaction {
 		db: DatabaseId,
 		ac: &str,
 		gr: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::AccessGrant>>> {
+		if version.is_some() {
+			let key = crate::key::database::access::gr::new(ns, db, ac, gr);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Dg(ns, db, ac, gr);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2718,7 +3119,18 @@ impl AuthorisationProvider for Transaction {
 impl ApiProvider for Transaction {
 	/// Retrieve all api definitions for a specific database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip(self))]
-	async fn all_db_apis(&self, ns: NamespaceId, db: DatabaseId) -> Result<Arc<[ApiDefinition]>> {
+	async fn all_db_apis(
+		&self,
+		ns: NamespaceId,
+		db: DatabaseId,
+		version: Option<u64>,
+	) -> Result<Arc<[ApiDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::ap::prefix(ns, db)?;
+			let end = crate::key::database::ap::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Aps(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val,
@@ -2742,7 +3154,15 @@ impl ApiProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		ap: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<ApiDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::ap::new(ns, db, ap);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Ap(ns, db, ap);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),
@@ -2786,7 +3206,14 @@ impl BucketProvider for Transaction {
 		&self,
 		ns: NamespaceId,
 		db: DatabaseId,
+		version: Option<u64>,
 	) -> Result<Arc<[catalog::BucketDefinition]>> {
+		if version.is_some() {
+			let beg = crate::key::database::bu::prefix(ns, db)?;
+			let end = crate::key::database::bu::suffix(ns, db)?;
+			let val = self.getr(beg..end, version).await?;
+			return util::deserialize_cache(val.iter().map(|x| x.1.as_slice()));
+		}
 		let qey = cache::tx::Lookup::Bus(ns, db);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_bus(),
@@ -2809,7 +3236,15 @@ impl BucketProvider for Transaction {
 		ns: NamespaceId,
 		db: DatabaseId,
 		bu: &str,
+		version: Option<u64>,
 	) -> Result<Option<Arc<catalog::BucketDefinition>>> {
+		if version.is_some() {
+			let key = crate::key::database::bu::new(ns, db, bu);
+			let Some(val) = self.get(&key, version).await? else {
+				return Ok(None);
+			};
+			return Ok(Some(Arc::new(val)));
+		}
 		let qey = cache::tx::Lookup::Bu(ns, db, bu);
 		match self.cache.get(&qey) {
 			Some(val) => val.try_into_type().map(Some),

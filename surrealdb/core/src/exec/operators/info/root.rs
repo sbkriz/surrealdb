@@ -112,14 +112,14 @@ async fn execute_root_info(ctx: &ExecutionContext, structured: bool) -> Result<V
 	// Create the result set
 	if structured {
 		let object = map! {
-			"accesses".to_string() => process(txn.all_root_accesses().await?),
+			"accesses".to_string() => process(txn.all_root_accesses(None).await?),
 			"defaults".to_string() => txn.get_default_config().await?
 				.map(|x| x.as_ref().clone().structure())
 				.unwrap_or_else(|| Value::Object(Default::default())),
-			"namespaces".to_string() => process(txn.all_ns().await?),
+			"namespaces".to_string() => process(txn.all_ns(None).await?),
 			"nodes".to_string() => process(txn.all_nodes().await?),
 			"system".to_string() => system().await,
-			"users".to_string() => process(txn.all_root_users().await?),
+			"users".to_string() => process(txn.all_root_users(None).await?),
 			"config".to_string() => opt.dynamic_configuration().clone().structure()
 		};
 		Ok(Value::Object(Object(object)))
@@ -127,7 +127,7 @@ async fn execute_root_info(ctx: &ExecutionContext, structured: bool) -> Result<V
 		let object = map! {
 			"accesses".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_root_accesses().await?.iter() {
+				for v in txn.all_root_accesses(None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()
@@ -137,7 +137,7 @@ async fn execute_root_info(ctx: &ExecutionContext, structured: bool) -> Result<V
 				.unwrap_or_else(|| Value::Object(Default::default())),
 			"namespaces".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_ns().await?.iter() {
+				for v in txn.all_ns(None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()
@@ -152,7 +152,7 @@ async fn execute_root_info(ctx: &ExecutionContext, structured: bool) -> Result<V
 			"system".to_string() => system().await,
 			"users".to_string() => {
 				let mut out = Object::default();
-				for v in txn.all_root_users().await?.iter() {
+				for v in txn.all_root_users(None).await?.iter() {
 					out.insert(v.name.clone(), v.to_sql().into());
 				}
 				out.into()

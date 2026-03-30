@@ -384,7 +384,10 @@ impl Document {
 		let ns = self.doc_ctx.ns();
 		let db = self.doc_ctx.db();
 
-		let tb = ctx.tx().get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name).await?;
+		let tb = ctx
+			.tx()
+			.get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name, opt.version)
+			.await?;
 		let fields = ctx
 			.tx()
 			.all_tb_fields(ns.namespace_id, db.database_id, view_table_name, opt.version)
@@ -451,7 +454,10 @@ impl Document {
 			let ns = self.doc_ctx.ns();
 			let db = self.doc_ctx.db();
 
-			let tb = ctx.tx().get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name).await?;
+			let tb = ctx
+				.tx()
+				.get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name, opt.version)
+				.await?;
 			let fields = ctx
 				.tx()
 				.all_tb_fields(ns.namespace_id, db.database_id, view_table_name, opt.version)
@@ -755,7 +761,10 @@ impl Document {
 		let ns = self.doc_ctx.ns();
 		let db = self.doc_ctx.db();
 
-		let tb = ctx.tx().get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name).await?;
+		let tb = ctx
+			.tx()
+			.get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name, opt.version)
+			.await?;
 		let fields = ctx
 			.tx()
 			.all_tb_fields(ns.namespace_id, db.database_id, view_table_name, opt.version)
@@ -1162,7 +1171,10 @@ impl Document {
 		let ns = self.doc_ctx.ns();
 		let db = self.doc_ctx.db();
 
-		let tb = ctx.tx().get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name).await?;
+		let tb = ctx
+			.tx()
+			.get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name, opt.version)
+			.await?;
 		let fields = ctx
 			.tx()
 			.all_tb_fields(ns.namespace_id, db.database_id, view_table_name, opt.version)

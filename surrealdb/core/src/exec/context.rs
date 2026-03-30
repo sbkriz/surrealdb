@@ -287,7 +287,7 @@ impl DatabaseContext {
 
 		// Cache miss — look up via the transaction
 		let txn = self.txn();
-		let result = txn.get_tb_by_name(&self.ns_ctx.ns.name, &self.db.name, table).await?;
+		let result = txn.get_tb_by_name(&self.ns_ctx.ns.name, &self.db.name, table, None).await?;
 
 		// Populate cache (write lock — brief exclusive access)
 		self.table_def_cache.write().await.insert(table.clone(), result.clone());
@@ -314,8 +314,9 @@ impl DatabaseContext {
 
 		// Cache miss — look up via the transaction
 		let txn = self.txn();
-		let result =
-			txn.all_tb_indexes(self.ns_ctx.ns.namespace_id, self.db.database_id, table).await?;
+		let result = txn
+			.all_tb_indexes(self.ns_ctx.ns.namespace_id, self.db.database_id, table, None)
+			.await?;
 
 		// Populate cache (write lock — brief exclusive access)
 		self.index_def_cache.write().await.insert(table.clone(), Arc::clone(&result));

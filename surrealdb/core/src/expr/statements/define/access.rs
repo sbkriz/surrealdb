@@ -321,7 +321,7 @@ impl DefineAccessStatement {
 				// Fetch the transaction
 				let txn = ctx.tx();
 				// Check if access method already exists
-				if let Some(access) = txn.get_root_access(&definition.name).await? {
+				if let Some(access) = txn.get_root_access(&definition.name, None).await? {
 					match self.kind {
 						DefineKind::Default => {
 							if !opt.import {
@@ -347,7 +347,7 @@ impl DefineAccessStatement {
 				let txn = ctx.tx();
 				// Check if the definition exists
 				let ns = ctx.get_ns_id(opt).await?;
-				if let Some(access) = txn.get_ns_access(ns, &definition.name).await? {
+				if let Some(access) = txn.get_ns_access(ns, &definition.name, None).await? {
 					match self.kind {
 						DefineKind::Default => {
 							if !opt.import {
@@ -375,7 +375,7 @@ impl DefineAccessStatement {
 				let txn = ctx.tx();
 				// Check if the definition exists
 				let (ns, db) = ctx.get_ns_db_ids(opt).await?;
-				if let Some(access) = txn.get_db_access(ns, db, &definition.name).await? {
+				if let Some(access) = txn.get_db_access(ns, db, &definition.name, None).await? {
 					match self.kind {
 						DefineKind::Default => {
 							if !opt.import {

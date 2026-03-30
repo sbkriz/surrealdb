@@ -132,7 +132,7 @@ impl<'ctx> Planner<'ctx> {
 			(Some(txn), Some(ns), Some(db)) => (txn, ns, db),
 			_ => return None,
 		};
-		let db_def = txn.get_db_by_name(ns, db).await.ok()??;
+		let db_def = txn.get_db_by_name(ns, db, None).await.ok()??;
 		Some((db_def.namespace_id, db_def.database_id))
 	}
 
@@ -2170,8 +2170,8 @@ impl<'ctx> Planner<'ctx> {
 		db: &str,
 		table_name: &crate::val::TableName,
 	) -> Option<crate::exec::operators::scan::resolved::ResolvedTableContext> {
-		let ns_def = txn.get_ns_by_name(ns).await.ok()??;
-		let db_def = txn.get_db_by_name(ns, db).await.ok()??;
+		let ns_def = txn.get_ns_by_name(ns, None).await.ok()??;
+		let db_def = txn.get_db_by_name(ns, db, None).await.ok()??;
 		resolve_table_context(txn, ctx, ns, db, ns_def.namespace_id, db_def.database_id, table_name)
 			.await
 			.ok()?
@@ -2203,14 +2203,14 @@ impl<'ctx> Planner<'ctx> {
 			None => return false,
 		};
 
-		let Ok(Some(ns_def)) = txn.get_ns_by_name(ns_name).await else {
+		let Ok(Some(ns_def)) = txn.get_ns_by_name(ns_name, None).await else {
 			return false;
 		};
-		let Ok(Some(db_def)) = txn.get_db_by_name(ns_name, db_name).await else {
+		let Ok(Some(db_def)) = txn.get_db_by_name(ns_name, db_name, None).await else {
 			return false;
 		};
 		let Ok(indexes) =
-			txn.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name).await
+			txn.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name, None).await
 		else {
 			return false;
 		};
@@ -2300,21 +2300,23 @@ impl<'ctx> Planner<'ctx> {
 		}
 
 		// Look up namespace and database to get IDs
-		let ns_def = match txn.get_ns_by_name(ns_name).await {
+		let ns_def = match txn.get_ns_by_name(ns_name, None).await {
 			Ok(Some(ns)) => ns,
 			_ => return Ok(None),
 		};
-		let db_def = match txn.get_db_by_name(ns_name, db_name).await {
+		let db_def = match txn.get_db_by_name(ns_name, db_name, None).await {
 			Ok(Some(db)) => db,
 			_ => return Ok(None),
 		};
 
 		// Fetch indexes for the table
-		let indexes =
-			match txn.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name).await {
-				Ok(idx) => idx,
-				Err(_) => return Ok(None),
-			};
+		let indexes = match txn
+			.all_tb_indexes(ns_def.namespace_id, db_def.database_id, table_name, None)
+			.await
+		{
+			Ok(idx) => idx,
+			Err(_) => return Ok(None),
+		};
 
 		if indexes.is_empty() {
 			return Ok(Some((AccessPath::TableScan, direction)));

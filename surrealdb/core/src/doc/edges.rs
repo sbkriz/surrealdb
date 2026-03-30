@@ -41,14 +41,14 @@ impl Document {
 			) {
 				// Check that the `in` record exists
 				ensure!(
-					txn.record_exists(ns, db, &l.table, &l.key).await?,
+					txn.record_exists(ns, db, &l.table, &l.key, opt.version).await?,
 					Error::IdNotFound {
 						rid: l.to_sql(),
 					}
 				);
 				// Check that the `out` record exists
 				ensure!(
-					txn.record_exists(ns, db, &r.table, &r.key).await?,
+					txn.record_exists(ns, db, &r.table, &r.key, opt.version).await?,
 					Error::IdNotFound {
 						rid: r.to_sql(),
 					}

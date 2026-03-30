@@ -75,7 +75,7 @@ async fn test_single_tx_cache_invalidation_on_index_put() {
 	let tb = TableName::from("test_table");
 
 	// Step 1: Populate the cache with an empty index list
-	let indexes = tx.all_tb_indexes(ns, db, &tb).await.unwrap();
+	let indexes = tx.all_tb_indexes(ns, db, &tb, None).await.unwrap();
 	assert_eq!(indexes.len(), 0, "Initially there should be no indexes");
 
 	// Step 2: Add an index via put_tb_index
@@ -91,7 +91,7 @@ async fn test_single_tx_cache_invalidation_on_index_put() {
 	tx.put_tb_index(ns, db, &tb, &ix_def).await.unwrap();
 
 	// Step 3: Query all indexes again — this must see the new index
-	let indexes = tx.all_tb_indexes(ns, db, &tb).await.unwrap();
+	let indexes = tx.all_tb_indexes(ns, db, &tb, None).await.unwrap();
 	assert_eq!(
 		indexes.len(),
 		1,
@@ -124,14 +124,14 @@ async fn test_single_tx_cache_invalidation_on_index_delete() {
 	tx.put_tb_index(ns, db, &tb, &ix_def).await.unwrap();
 
 	// Populate the cache with the list containing one index
-	let indexes = tx.all_tb_indexes(ns, db, &tb).await.unwrap();
+	let indexes = tx.all_tb_indexes(ns, db, &tb, None).await.unwrap();
 	assert_eq!(indexes.len(), 1, "Should have one index");
 
 	// Remove the index
 	tx.del_tb_index(ns, db, &tb, "test_idx").await.unwrap();
 
 	// Query again — must see empty list
-	let indexes = tx.all_tb_indexes(ns, db, &tb).await.unwrap();
+	let indexes = tx.all_tb_indexes(ns, db, &tb, None).await.unwrap();
 	assert_eq!(
 		indexes.len(),
 		0,
@@ -139,7 +139,7 @@ async fn test_single_tx_cache_invalidation_on_index_delete() {
 	);
 
 	// Also verify individual cache entry is invalidated
-	let ix = tx.get_tb_index(ns, db, &tb, "test_idx").await.unwrap();
+	let ix = tx.get_tb_index(ns, db, &tb, "test_idx", None).await.unwrap();
 	assert!(ix.is_none(), "After del_tb_index, get_tb_index should return None");
 
 	tx.cancel().await.unwrap();
@@ -228,7 +228,7 @@ async fn test_single_tx_cache_invalidation_on_ns_put() {
 	let tx = ds.transaction(Write, Optimistic).await.unwrap();
 
 	// Populate the cache with an empty namespace list
-	let nss = tx.all_ns().await.unwrap();
+	let nss = tx.all_ns(None).await.unwrap();
 	assert_eq!(nss.len(), 0, "Initially there should be no namespaces");
 
 	// Add a namespace
@@ -240,7 +240,7 @@ async fn test_single_tx_cache_invalidation_on_ns_put() {
 	tx.put_ns(ns_def).await.unwrap();
 
 	// Query again — must see the new namespace
-	let nss = tx.all_ns().await.unwrap();
+	let nss = tx.all_ns(None).await.unwrap();
 	assert_eq!(
 		nss.len(),
 		1,
@@ -264,7 +264,7 @@ async fn test_single_tx_cache_invalidation_on_db_put_and_del() {
 	tx.put_ns(ns_def).await.unwrap();
 
 	// Populate the cache with an empty database list
-	let dbs = tx.all_db(NamespaceId(1)).await.unwrap();
+	let dbs = tx.all_db(NamespaceId(1), None).await.unwrap();
 	assert_eq!(dbs.len(), 0, "Initially there should be no databases");
 
 	// Add a database
@@ -279,7 +279,7 @@ async fn test_single_tx_cache_invalidation_on_db_put_and_del() {
 	tx.put_db("test", db_def).await.unwrap();
 
 	// Query again — must see the new database
-	let dbs = tx.all_db(NamespaceId(1)).await.unwrap();
+	let dbs = tx.all_db(NamespaceId(1), None).await.unwrap();
 	assert_eq!(
 		dbs.len(),
 		1,
@@ -290,7 +290,7 @@ async fn test_single_tx_cache_invalidation_on_db_put_and_del() {
 	tx.del_db("test", "testdb", false).await.unwrap();
 
 	// Query again — must see empty list
-	let dbs = tx.all_db(NamespaceId(1)).await.unwrap();
+	let dbs = tx.all_db(NamespaceId(1), None).await.unwrap();
 	assert_eq!(
 		dbs.len(),
 		0,
@@ -346,7 +346,7 @@ async fn test_single_tx_cache_invalidation_on_param_put() {
 	let (_ds, tx, ns, db) = setup_tx_with_ns_db().await;
 
 	// Populate the cache with an empty param list
-	let pas = tx.all_db_params(ns, db).await.unwrap();
+	let pas = tx.all_db_params(ns, db, None).await.unwrap();
 	assert_eq!(pas.len(), 0, "Initially there should be no params");
 
 	// Add a param
@@ -358,7 +358,7 @@ async fn test_single_tx_cache_invalidation_on_param_put() {
 	tx.put_db_param(ns, db, &pa_def).await.unwrap();
 
 	// Query again — must see the new param
-	let pas = tx.all_db_params(ns, db).await.unwrap();
+	let pas = tx.all_db_params(ns, db, None).await.unwrap();
 	assert_eq!(
 		pas.len(),
 		1,

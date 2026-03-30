@@ -88,23 +88,24 @@ impl DefineTableStatement {
 		let db = txn.expect_db_by_name(ns_name, db_name).await?;
 
 		// Check if the definition exists
-		let table_id = if let Some(tb) = txn.get_tb(ns.namespace_id, db.database_id, &name).await? {
-			match self.kind {
-				DefineKind::Default => {
-					if !opt.import {
-						bail!(Error::TbAlreadyExists {
-							name: name.clone().into_string(),
-						});
+		let table_id =
+			if let Some(tb) = txn.get_tb(ns.namespace_id, db.database_id, &name, None).await? {
+				match self.kind {
+					DefineKind::Default => {
+						if !opt.import {
+							bail!(Error::TbAlreadyExists {
+								name: name.clone().into_string(),
+							});
+						}
 					}
+					DefineKind::Overwrite => {}
+					DefineKind::IfNotExists => return Ok(Value::None),
 				}
-				DefineKind::Overwrite => {}
-				DefineKind::IfNotExists => return Ok(Value::None),
-			}
 
-			tb.table_id
-		} else {
-			txn.get_next_tb_id(Some(ctx), ns.namespace_id, db.database_id).await?
-		};
+				tb.table_id
+			} else {
+				txn.get_next_tb_id(Some(ctx), ns.namespace_id, db.database_id).await?
+			};
 
 		let comment = stk
 			.run(|stk| self.comment.compute(stk, ctx, opt, doc))
@@ -184,7 +185,8 @@ impl DefineTableStatement {
 				let key = crate::key::table::ft::new(ns.namespace_id, db.database_id, ft, &name);
 				txn.set(&key, &tb_def, None).await?;
 				// Refresh the table cache
-				let Some(foreign_tb) = txn.get_tb(ns.namespace_id, db.database_id, ft).await?
+				let Some(foreign_tb) =
+					txn.get_tb(ns.namespace_id, db.database_id, ft, None).await?
 				else {
 					bail!(Error::TbNotFound {
 						name: ft.clone(),
@@ -324,7 +326,10 @@ impl DefineTableStatement {
 
 			let ns = doc_ctx.ns();
 			let db = doc_ctx.db();
-			let tb = ctx.tx().get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name).await?;
+			let tb = ctx
+				.tx()
+				.get_or_add_tb(Some(ctx), &ns.name, &db.name, view_table_name, None)
+				.await?;
 			let fields = ctx
 				.tx()
 				.all_tb_fields(ns.namespace_id, db.database_id, view_table_name, opt.version)

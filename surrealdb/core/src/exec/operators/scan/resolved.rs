@@ -82,7 +82,7 @@ pub(crate) async fn resolve_table_context(
 
 	// Look up table definition
 	let table_def = match txn
-		.get_tb_by_name(ns, db, table_name)
+		.get_tb_by_name(ns, db, table_name, None)
 		.await
 		.map_err(|e| Error::Internal(e.to_string()))?
 	{

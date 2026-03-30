@@ -4,10 +4,10 @@ use std::ops::Range;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use surrealmx::{Database, DatabaseOptions, KeyIterator, ScanIterator, Transaction as Tx};
 use tokio::sync::RwLock;
 
-use chrono::{DateTime, Utc};
 use super::api::ScanLimit;
 use super::config::MemoryConfig;
 #[cfg(not(target_family = "wasm"))]
@@ -16,7 +16,7 @@ use super::err::{Error, Result};
 use crate::key::debug::Sprintable;
 use crate::kvs::api::Transactable;
 use crate::kvs::timestamp::{
-	BoxTimeStamp, BoxTimeStampImpl, TimeStamp, TimeStampImpl, MAX_TIMESTAMP_BYTES,
+	BoxTimeStamp, BoxTimeStampImpl, MAX_TIMESTAMP_BYTES, TimeStamp, TimeStampImpl,
 };
 use crate::kvs::{Key, Val};
 
