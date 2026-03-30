@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
-use parking_lot::Mutex;
+use parking_lot::{Condvar, Mutex};
 use rocksdb::OptimisticTransactionDB;
 use web_time::{SystemTime, UNIX_EPOCH};
 
@@ -36,33 +36,48 @@ const GC_INTERVAL: Duration = Duration::from_secs(60);
 /// The watermark is monotonically increasing -- RocksDB silently rejects attempts to
 /// lower it, so clock adjustments are handled safely.
 pub struct GarbageCollector {
-	/// Shutdown flag
-	shutdown: Arc<AtomicBool>,
+	/// Shared state for signalling shutdown to the background thread
+	notify: Arc<ShutdownSignal>,
 	/// Thread handle
 	handle: Mutex<Option<thread::JoinHandle<()>>>,
+}
+
+/// Shared state for signalling shutdown to the background thread
+struct ShutdownSignal {
+	flag: AtomicBool,
+	condvar: Condvar,
+	mutex: Mutex<()>,
 }
 
 impl GarbageCollector {
 	/// Create a new garbage collector that advances the GC watermark every 60 seconds.
 	pub fn new(db: Pin<Arc<OptimisticTransactionDB>>, retention_ns: u64) -> Result<Self> {
+		// Compute the retention period in milliseconds
 		let retention_millis = retention_ns / 1_000_000;
+		// Log the version garbage collector configuration options
 		info!(target: TARGET, "Version garbage collector: enabled (retention={}ms, interval={}s)",
 			retention_millis,
 			GC_INTERVAL.as_secs(),
 		);
-		// Create a new shutdown flag
-		let shutdown = Arc::new(AtomicBool::new(false));
-		// Clone the shutdown flag
-		let finished = shutdown.clone();
-		// Spawn the garbage collector thread
+		// Create a new shutdown notifier
+		let notify = Arc::new(ShutdownSignal {
+			flag: AtomicBool::new(false),
+			condvar: Condvar::new(),
+			mutex: Mutex::new(()),
+		});
+		// Clone the shutdown notifier
+		let signal = notify.clone();
+		// Spawn the background garbage collector thread
 		let handle = thread::Builder::new()
 			.name("rocksdb-garbage-collector".to_string())
 			.spawn(move || {
 				loop {
-					// Wait for the GC interval
-					thread::sleep(GC_INTERVAL);
-					// Check shutdown flag after sleep
-					if finished.load(Ordering::Relaxed) {
+					// Wait for the specified interval
+					let mut guard = signal.mutex.lock();
+					signal.condvar.wait_for(&mut guard, GC_INTERVAL);
+					drop(guard);
+					// Check shutdown flag again after sleep
+					if signal.flag.load(Ordering::Relaxed) {
 						break;
 					}
 					// Compute the GC threshold as an HLC timestamp
@@ -70,7 +85,9 @@ impl GarbageCollector {
 						.duration_since(UNIX_EPOCH)
 						.expect("system time cannot be before epoch")
 						.as_millis() as u64;
+					// Compute the GC threshold as an HLC timestamp
 					let threshold_millis = now_millis.saturating_sub(retention_millis);
+					//
 					let threshold_ts = threshold_millis << 16;
 					let ts_bytes = threshold_ts.to_le_bytes();
 					// Get the default column family handle
@@ -93,20 +110,21 @@ impl GarbageCollector {
 			})?;
 		// Create a new garbage collector
 		Ok(Self {
-			shutdown,
+			notify,
 			handle: Mutex::new(Some(handle)),
 		})
 	}
 
-	/// Shutdown the garbage collector
+	/// Shutdown the garbage collector without blocking the async runtime.
 	pub fn shutdown(&self) -> Result<()> {
 		// Signal shutdown
-		self.shutdown.store(true, Ordering::Relaxed);
-		// Wait for thread to finish
+		self.notify.flag.store(true, Ordering::Relaxed);
+		// Notify the garbage collector thread
+		self.notify.condvar.notify_one();
+		// Wait for the garbage collector thread to finish
 		if let Some(handle) = self.handle.lock().take() {
 			let _ = handle.join();
 		}
-		// All good
 		Ok(())
 	}
 }

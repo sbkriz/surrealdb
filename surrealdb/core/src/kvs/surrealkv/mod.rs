@@ -1,18 +1,20 @@
 #![cfg(feature = "kv-surrealkv")]
 
+mod background_flusher;
 mod cnf;
-mod sync;
+mod commit_coordinator;
 
 use std::ops::Range;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use background_flusher::BackgroundFlusher;
 use chrono::{DateTime, Utc};
+use commit_coordinator::CommitCoordinator;
 use surrealkv::{
 	Durability, HistoryOptions, LSMIterator, Mode, Transaction as Tx, Tree, TreeBuilder,
 };
-use sync::{BackgroundFlusher, CommitCoordinator};
 use tokio::sync::RwLock;
 
 use super::Direction;
