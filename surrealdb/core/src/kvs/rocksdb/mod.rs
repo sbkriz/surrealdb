@@ -589,13 +589,15 @@ impl Transactable for Transaction {
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
 		// Build the read options (with timestamp when versioned)
+		let versioned_ro;
 		let ro = if version.is_some() {
-			self.read_options(version, inner)
+			versioned_ro = self.read_options(version, inner);
+			&versioned_ro
 		} else {
-			self.read_options(None, inner)
+			&self.read_options
 		};
 		// Get the key
-		let res = inner.get_pinned_opt(key, &ro)?.is_some();
+		let res = inner.get_pinned_opt(key, ro)?.is_some();
 		// Return result
 		Ok(res)
 	}
@@ -617,13 +619,15 @@ impl Transactable for Transaction {
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
 		// Build the read options (with timestamp when versioned)
+		let versioned_ro;
 		let ro = if version.is_some() {
-			self.read_options(version, inner)
+			versioned_ro = self.read_options(version, inner);
+			&versioned_ro
 		} else {
-			self.read_options(None, inner)
+			&self.read_options
 		};
 		// Get the key
-		let res = inner.get_opt(key, &ro)?;
+		let res = inner.get_opt(key, ro)?;
 		// Return result
 		Ok(res)
 	}
@@ -645,13 +649,15 @@ impl Transactable for Transaction {
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
 		// Build the read options (with timestamp when versioned)
+		let versioned_ro;
 		let ro = if version.is_some() {
-			self.read_options(version, inner)
+			versioned_ro = self.read_options(version, inner);
+			&versioned_ro
 		} else {
-			self.read_options(None, inner)
+			&self.read_options
 		};
 		// Get the keys
-		let res = inner.multi_get_opt(keys, &ro);
+		let res = inner.multi_get_opt(keys, ro);
 		// Convert result
 		let res = res.into_iter().map(|r| r.map_err(Into::into)).collect::<Result<_>>()?;
 		// Return result
