@@ -183,7 +183,7 @@ impl DefineTableStatement {
 			for ft in tables.iter() {
 				// Save the view config
 				let key = crate::key::table::ft::new(ns.namespace_id, db.database_id, ft, &name);
-				txn.set(&key, &tb_def, None).await?;
+				txn.set(&key, &tb_def).await?;
 				// Refresh the table cache
 				let Some(foreign_tb) =
 					txn.get_tb(ns.namespace_id, db.database_id, ft, None).await?
@@ -322,7 +322,7 @@ impl DefineTableStatement {
 
 			let key = key::record::new(ns, db, view_table_name, &id.key);
 			let record = Arc::new(Record::new(Value::Object(o)));
-			tx.put(&key, &record, None).await?;
+			tx.put(&key, &record).await?;
 
 			let ns = doc_ctx.ns();
 			let db = doc_ctx.db();
@@ -748,7 +748,7 @@ impl DefineTableStatement {
 			});
 
 			let key = RecordIdKey::Array(Array(group));
-			tx.put_record(ns, db, view_table_name, &key, record.clone(), None).await?;
+			tx.put_record(ns, db, view_table_name, &key, record.clone()).await?;
 
 			let id = Arc::new(RecordId {
 				table: view_table_name.clone(),
@@ -796,7 +796,6 @@ impl DefineTableStatement {
 						field_kind: val,
 						..Default::default()
 					},
-					None,
 				)
 				.await?;
 			}
@@ -812,7 +811,6 @@ impl DefineTableStatement {
 						field_kind: val,
 						..Default::default()
 					},
-					None,
 				)
 				.await?;
 			}

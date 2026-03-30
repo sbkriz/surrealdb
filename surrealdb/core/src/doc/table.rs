@@ -125,7 +125,7 @@ impl Document {
 					let record = Arc::new(Record::new(data));
 
 					ctx.tx()
-						.set_record(db.namespace_id, db.database_id, table_name, id, record, None)
+						.set_record(db.namespace_id, db.database_id, table_name, id, record)
 						.await?;
 				} else {
 					ctx.tx().del_record(db.namespace_id, db.database_id, table_name, id).await?;
@@ -373,7 +373,7 @@ impl Document {
 		record.data = data;
 		let record = Arc::new(record);
 
-		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone(), None)
+		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone())
 			.await?;
 
 		let id = Arc::new(RecordId {
@@ -750,7 +750,7 @@ impl Document {
 		record.data = data;
 		let record = Arc::new(record);
 
-		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone(), None)
+		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone())
 			.await?;
 
 		let id = RecordId {
@@ -1160,7 +1160,7 @@ impl Document {
 		record.data = data;
 		let record = Arc::new(record);
 
-		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone(), None)
+		tx.set_record(db.namespace_id, db.database_id, view_table_name, &key, record.clone())
 			.await?;
 
 		let id = RecordId {

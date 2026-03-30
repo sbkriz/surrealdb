@@ -467,24 +467,24 @@ impl Transaction {
 
 	/// Insert or update a key in the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip_all)]
-	pub async fn set<K>(&self, key: &K, val: &K::ValueType, version: Option<u64>) -> Result<()>
+	pub async fn set<K>(&self, key: &K, val: &K::ValueType) -> Result<()>
 	where
 		K: KVKey + Debug,
 	{
 		let key = key.encode_key()?;
 		let val = val.kv_encode_value()?;
-		Ok(self.tr.set(key, val, version).await.map_err(Error::from)?)
+		Ok(self.tr.set(key, val).await.map_err(Error::from)?)
 	}
 
 	/// Insert a key if it doesn't exist in the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip_all)]
-	pub async fn put<K>(&self, key: &K, val: &K::ValueType, version: Option<u64>) -> Result<()>
+	pub async fn put<K>(&self, key: &K, val: &K::ValueType) -> Result<()>
 	where
 		K: KVKey + Debug,
 	{
 		let key = key.encode_key()?;
 		let val = val.kv_encode_value()?;
-		Ok(self.tr.put(key, val, version).await.map_err(Error::from)?)
+		Ok(self.tr.put(key, val).await.map_err(Error::from)?)
 	}
 
 	/// Update a key in the datastore if the current value matches a condition.
@@ -825,7 +825,7 @@ impl Transaction {
 			// Create the changefeed key with the current timestamp
 			let key = crate::key::change::new(ns, db, ts, &tb).encode_key()?;
 			// Write the changefeed entry using the raw transactor API
-			self.tr.set(key, value, None).await.map_err(Error::from)?;
+			self.tr.set(key, value).await.map_err(Error::from)?;
 			// Everything succeeded
 			Ok::<(), anyhow::Error>(())
 		});
@@ -1030,7 +1030,7 @@ impl NamespaceProvider for Transaction {
 
 	async fn put_ns(&self, ns: NamespaceDefinition) -> Result<Arc<NamespaceDefinition>> {
 		let key = crate::key::root::ns::new(&ns.name);
-		self.set(&key, &ns, None).await?;
+		self.set(&key, &ns).await?;
 
 		// Invalidate the cached list of all namespaces
 		let list_key = cache::tx::Lookup::Nss;
@@ -1179,7 +1179,7 @@ impl DatabaseProvider for Transaction {
 
 	async fn put_db(&self, ns: &str, db: DatabaseDefinition) -> Result<Arc<DatabaseDefinition>> {
 		let key = crate::key::namespace::db::new(db.namespace_id, &db.name);
-		self.set(&key, &db, None).await?;
+		self.set(&key, &db).await?;
 
 		// Invalidate the cached list of all databases for this namespace
 		let list_key = cache::tx::Lookup::Dbs(db.namespace_id);
@@ -1657,7 +1657,7 @@ impl DatabaseProvider for Transaction {
 		fc: &catalog::FunctionDefinition,
 	) -> Result<()> {
 		let key = crate::key::database::fc::new(ns, db, &fc.name);
-		self.set(&key, fc, None).await?;
+		self.set(&key, fc).await?;
 
 		// Invalidate the cached list of all functions for this database
 		let list_key = cache::tx::Lookup::Fcs(ns, db);
@@ -1679,7 +1679,7 @@ impl DatabaseProvider for Transaction {
 	) -> Result<()> {
 		let name = md.get_storage_name()?;
 		let key = crate::key::database::md::new(ns, db, &name);
-		self.set(&key, md, None).await?;
+		self.set(&key, md).await?;
 
 		// Invalidate the cached list of all modules for this database
 		let list_key = cache::tx::Lookup::Mds(ns, db);
@@ -1700,7 +1700,7 @@ impl DatabaseProvider for Transaction {
 		pa: &catalog::ParamDefinition,
 	) -> Result<()> {
 		let key = crate::key::database::pa::new(ns, db, &pa.name);
-		self.set(&key, pa, None).await?;
+		self.set(&key, pa).await?;
 
 		// Invalidate the cached list of all params for this database
 		let list_key = cache::tx::Lookup::Pas(ns, db);
@@ -1889,7 +1889,7 @@ impl TableProvider for Transaction {
 		tb: &TableDefinition,
 	) -> Result<Arc<TableDefinition>> {
 		let key = crate::key::database::tb::new(tb.namespace_id, tb.database_id, &tb.name);
-		match self.set(&key, tb, None).await {
+		match self.set(&key, tb).await {
 			Ok(_) => {}
 			Err(e) => {
 				if matches!(
@@ -2198,7 +2198,7 @@ impl TableProvider for Transaction {
 	) -> Result<()> {
 		let name = fd.name.to_raw_string();
 		let key = crate::key::table::fd::new(ns, db, tb, &name);
-		self.set(&key, fd, None).await?;
+		self.set(&key, fd).await?;
 
 		// Invalidate the cached list of all fields for this table
 		let list_key = cache::tx::Lookup::Fds(ns, db, tb.as_ref());
@@ -2268,11 +2268,11 @@ impl TableProvider for Transaction {
 		ix: &catalog::IndexDefinition,
 	) -> Result<()> {
 		let key = crate::key::table::ix::new(ns, db, tb, &ix.name);
-		self.set(&key, ix, None).await?;
+		self.set(&key, ix).await?;
 
 		let name_lookup_key =
 			crate::key::table::ix::IndexNameLookupKey::new(ns, db, tb, ix.index_id);
-		self.set(&name_lookup_key, &ix.name, None).await?;
+		self.set(&name_lookup_key, &ix.name).await?;
 
 		// Invalidate the cached list of all indexes for this table
 		let list_key = cache::tx::Lookup::Ixs(ns, db, tb.as_ref());
@@ -2399,10 +2399,9 @@ impl TableProvider for Transaction {
 		tb: &TableName,
 		id: &RecordIdKey,
 		record: Arc<Record>,
-		version: Option<u64>,
 	) -> Result<()> {
 		let key = crate::key::record::new(ns, db, tb, id);
-		self.put(&key, &record, version).await?;
+		self.put(&key, &record).await?;
 		self.set_record_cache(ns, db, tb, id, record);
 		Ok(())
 	}
@@ -2415,11 +2414,10 @@ impl TableProvider for Transaction {
 		tb: &TableName,
 		id: &RecordIdKey,
 		record: Arc<Record>,
-		version: Option<u64>,
 	) -> Result<()> {
 		// Set the value in the datastore
 		let key = crate::key::record::new(ns, db, tb, id);
-		self.set(&key, &record, version).await?;
+		self.set(&key, &record).await?;
 		// Set the value in the cache
 		self.set_record_cache(ns, db, tb, id, record);
 		// Return nothing
@@ -2635,7 +2633,7 @@ impl UserProvider for Transaction {
 
 	async fn put_root_user(&self, us: &catalog::UserDefinition) -> Result<()> {
 		let key = crate::key::root::us::new(&us.name);
-		self.set(&key, us, None).await?;
+		self.set(&key, us).await?;
 
 		// Invalidate the cached list of all root users
 		let list_key = cache::tx::Lookup::Rus;
@@ -2651,7 +2649,7 @@ impl UserProvider for Transaction {
 
 	async fn put_ns_user(&self, ns: NamespaceId, us: &catalog::UserDefinition) -> Result<()> {
 		let key = crate::key::namespace::us::new(ns, &us.name);
-		self.set(&key, us, None).await?;
+		self.set(&key, us).await?;
 
 		// Invalidate the cached list of all namespace users
 		let list_key = cache::tx::Lookup::Nus(ns);
@@ -2672,7 +2670,7 @@ impl UserProvider for Transaction {
 		us: &catalog::UserDefinition,
 	) -> Result<()> {
 		let key = crate::key::database::us::new(ns, db, &us.name);
-		self.set(&key, us, None).await?;
+		self.set(&key, us).await?;
 
 		// Invalidate the cached list of all database users
 		let list_key = cache::tx::Lookup::Dus(ns, db);
@@ -3182,7 +3180,7 @@ impl ApiProvider for Transaction {
 	async fn put_db_api(&self, ns: NamespaceId, db: DatabaseId, ap: &ApiDefinition) -> Result<()> {
 		let name = ap.path.to_string();
 		let key = crate::key::database::ap::new(ns, db, &name);
-		self.set(&key, ap, None).await?;
+		self.set(&key, ap).await?;
 
 		// Invalidate the cached list of all APIs for this database
 		let list_key = cache::tx::Lookup::Aps(ns, db);

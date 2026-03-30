@@ -82,7 +82,7 @@ impl AlterAccessStatement {
 		};
 		self.apply(&mut ac);
 		let key = crate::key::root::ac::new(&self.name);
-		txn.set(&key, &ac, None).await?;
+		txn.set(&key, &ac).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}
@@ -105,7 +105,7 @@ impl AlterAccessStatement {
 		};
 		self.apply(&mut ac);
 		let key = crate::key::namespace::ac::new(ns, &self.name);
-		txn.set(&key, &ac, None).await?;
+		txn.set(&key, &ac).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}
@@ -130,7 +130,7 @@ impl AlterAccessStatement {
 		};
 		self.apply(&mut ac);
 		let key = crate::key::database::ac::new(ns, db, &self.name);
-		txn.set(&key, &ac, None).await?;
+		txn.set(&key, &ac).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

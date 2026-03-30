@@ -568,7 +568,6 @@ pub(crate) trait TableProvider {
 		tb: &TableName,
 		id: &RecordIdKey,
 		record: Arc<Record>,
-		version: Option<u64>,
 	) -> Result<()>;
 
 	/// Set record into the datastore.
@@ -581,7 +580,6 @@ pub(crate) trait TableProvider {
 		tb: &TableName,
 		id: &RecordIdKey,
 		record: Arc<Record>,
-		version: Option<u64>,
 	) -> Result<()>;
 
 	/// Delete record from the datastore.

@@ -135,7 +135,7 @@ impl AlterFieldStatement {
 
 		// Set the table definition
 		let key = crate::key::table::fd::new(ns, db, &self.what, &name);
-		txn.set(&key, &df, None).await?;
+		txn.set(&key, &df).await?;
 		// Refresh the table cache
 		let Some(tb) = txn.get_tb(ns, db, &self.what, None).await? else {
 			return Err(Error::TbNotFound {

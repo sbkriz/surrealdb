@@ -492,7 +492,7 @@ impl Sequence {
 			self.tf.transaction(TransactionType::Write, LockType::Optimistic, sqs.clone()).await?;
 
 		// Execute operations and ensure transaction is cancelled on error
-		match tx.set(&self.state_key, &revision::to_vec(&self.st)?, None).await {
+		match tx.set(&self.state_key, &revision::to_vec(&self.st)?).await {
 			Ok(_) => {
 				tx.commit().await?;
 				Ok(v)
@@ -615,7 +615,7 @@ impl Sequence {
 				owner: sqs.nid,
 			})?;
 			let batch_key = seq.new_batch_key(next_start)?;
-			tx.set(&batch_key, &bv, None).await?;
+			tx.set(&batch_key, &bv).await?;
 			Ok::<(i64, i64), anyhow::Error>((next_start, next_to))
 		}
 		.await;

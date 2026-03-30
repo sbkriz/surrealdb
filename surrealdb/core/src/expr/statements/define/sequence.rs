@@ -110,7 +110,7 @@ impl DefineSequenceStatement {
 			timeout,
 		};
 		// Set the definition
-		txn.set(&key, &sq, None).await?;
+		txn.set(&key, &sq).await?;
 
 		// Clear any pre-existing sequence records
 		let ba_range = Prefix::new_ba_range(db.namespace_id, db.database_id, &sq.name)?;

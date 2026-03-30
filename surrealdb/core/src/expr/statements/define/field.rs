@@ -335,7 +335,7 @@ impl DefineFieldStatement {
 						..Default::default()
 					}
 				};
-				txn.set(&key, &val, None).await?;
+				txn.set(&key, &val).await?;
 				// Process to any sub field
 				if let Some(new_kind) = new_kind {
 					cur_kind = new_kind;

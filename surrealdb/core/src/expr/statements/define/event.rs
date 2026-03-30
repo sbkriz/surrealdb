@@ -84,7 +84,6 @@ impl DefineEventStatement {
 				comment,
 				kind: self.event_kind.clone(),
 			},
-			None,
 		)
 		.await?;
 

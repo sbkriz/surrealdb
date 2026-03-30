@@ -70,7 +70,6 @@ impl DefineModelStatement {
 				comment,
 				permissions: self.permissions.clone(),
 			},
-			None,
 		)
 		.await?;
 		// Clear the cache

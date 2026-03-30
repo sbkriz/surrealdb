@@ -1086,7 +1086,7 @@ impl Datastore {
 		let key = crate::key::root::nd::Nd::new(self.id);
 		let now = self.clock_now();
 		let node = Node::new(self.id, now, false);
-		let res = run!(txn, txn.put(&key, &node, None).await);
+		let res = run!(txn, txn.put(&key, &node).await);
 		match res {
 			Err(e) => {
 				if matches!(

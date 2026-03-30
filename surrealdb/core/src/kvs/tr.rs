@@ -163,14 +163,14 @@ impl Transactor {
 
 	/// Insert or update a key in the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tr", skip_all)]
-	pub async fn set<K, V>(&self, key: K, val: V, version: Option<u64>) -> Result<()>
+	pub async fn set<K, V>(&self, key: K, val: V) -> Result<()>
 	where
 		K: IntoBytes + Debug,
 		V: IntoBytes + Debug,
 	{
 		let key = key.into_vec();
 		let val = val.into_vec();
-		self.inner.set(key, val, version).await
+		self.inner.set(key, val).await
 	}
 
 	/// Insert or replace a key in the datastore.
@@ -187,14 +187,14 @@ impl Transactor {
 
 	/// Insert a key if it doesn't exist in the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tr", skip_all)]
-	pub async fn put<K, V>(&self, key: K, val: V, version: Option<u64>) -> Result<()>
+	pub async fn put<K, V>(&self, key: K, val: V) -> Result<()>
 	where
 		K: IntoBytes + Debug,
 		V: IntoBytes + Debug,
 	{
 		let key = key.into_vec();
 		let val = val.into_vec();
-		self.inner.put(key, val, version).await
+		self.inner.put(key, val).await
 	}
 
 	/// Update a key in the datastore if the current value matches a condition.

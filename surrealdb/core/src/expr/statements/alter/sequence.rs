@@ -63,7 +63,7 @@ impl AlterSequenceStatement {
 		}
 		// Set the sequence definition
 		let key = Sq::new(ns, db, &self.name);
-		txn.set(&key, &sq, None).await?;
+		txn.set(&key, &sq).await?;
 		// Clear the cache
 		txn.clear_cache();
 		// Ok all good

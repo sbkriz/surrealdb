@@ -62,7 +62,7 @@ impl AlterParamStatement {
 		}
 
 		let key = crate::key::database::pa::new(ns, db, &self.name);
-		txn.set(&key, &pa, None).await?;
+		txn.set(&key, &pa).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

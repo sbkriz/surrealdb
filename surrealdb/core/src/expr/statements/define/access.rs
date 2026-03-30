@@ -336,7 +336,7 @@ impl DefineAccessStatement {
 				}
 				// Process the statement
 				let key = crate::key::root::ac::new(&definition.name);
-				txn.set(&key, &definition, None).await?;
+				txn.set(&key, &definition).await?;
 				// Clear the cache
 				txn.clear_cache();
 				// Ok all good
@@ -364,7 +364,7 @@ impl DefineAccessStatement {
 				// Process the statement
 				let key = crate::key::namespace::ac::new(ns, &definition.name);
 				txn.get_or_add_ns(Some(ctx), opt.ns()?).await?;
-				txn.set(&key, &definition, None).await?;
+				txn.set(&key, &definition).await?;
 				// Clear the cache
 				txn.clear_cache();
 				// Ok all good
@@ -392,7 +392,7 @@ impl DefineAccessStatement {
 				}
 				// Process the statement
 				let key = crate::key::database::ac::new(ns, db, &definition.name);
-				txn.set(&key, &definition, None).await?;
+				txn.set(&key, &definition).await?;
 				// Clear the cache
 				txn.clear_cache();
 				// Ok all good

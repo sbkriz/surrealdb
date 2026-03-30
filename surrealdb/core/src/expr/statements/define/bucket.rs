@@ -103,7 +103,7 @@ impl DefineBucketStatement {
 			readonly: self.readonly,
 			comment,
 		};
-		txn.set(&key, &ap, None).await?;
+		txn.set(&key, &ap).await?;
 		// Clear the cache
 		txn.clear_cache();
 		// Ok all good

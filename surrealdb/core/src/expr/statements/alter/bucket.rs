@@ -67,7 +67,7 @@ impl AlterBucketStatement {
 		}
 
 		let key = crate::key::database::bu::new(ns, db, &self.name);
-		txn.set(&key, &bu, None).await?;
+		txn.set(&key, &bu).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

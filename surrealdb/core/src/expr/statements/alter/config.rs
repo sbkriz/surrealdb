@@ -62,7 +62,7 @@ impl AlterConfigStatement {
 
 		let new_def = self.inner.compute(stk, ctx, opt, doc).await?;
 		let key = crate::key::database::cg::new(ns, db, config_name);
-		txn.set(&key, &new_def, None).await?;
+		txn.set(&key, &new_def).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

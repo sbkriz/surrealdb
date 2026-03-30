@@ -280,7 +280,7 @@ pub async fn create_grant(
 
 					let (ns, db) = ctx.get_ns_db_ids(opt).await?;
 					let key = crate::key::database::access::gr::new(ns, db, &gr.ac, &gr.id);
-					txn.put(&key, &gr_store, None).await
+					txn.put(&key, &gr_store).await
 				}
 				_ => bail!(Error::AccessLevelMismatch),
 			};
@@ -398,13 +398,13 @@ pub async fn create_grant(
 			let res = match base {
 				Base::Root => {
 					let key = crate::key::root::access::gr::new(&gr.ac, &gr.id);
-					txn.put(&key, &gr_store, None).await
+					txn.put(&key, &gr_store).await
 				}
 				Base::Ns => {
 					let ns = txn.get_or_add_ns(Some(ctx), opt.ns()?).await?;
 					let key =
 						crate::key::namespace::access::gr::new(ns.namespace_id, &gr.ac, &gr.id);
-					txn.put(&key, &gr_store, None).await
+					txn.put(&key, &gr_store).await
 				}
 				Base::Db => {
 					let (ns, db) = opt.ns_db()?;
@@ -416,7 +416,7 @@ pub async fn create_grant(
 						&gr.ac,
 						&gr.id,
 					);
-					txn.put(&key, &gr_store, None).await
+					txn.put(&key, &gr_store).await
 				}
 			};
 
@@ -692,12 +692,12 @@ pub async fn revoke_grant(
 			match base {
 				Base::Root => {
 					let key = crate::key::root::access::gr::new(&stmt.ac, gr);
-					txn.set(&key, &revoke, None).await?;
+					txn.set(&key, &revoke).await?;
 				}
 				Base::Ns => {
 					let ns = txn.get_or_add_ns(Some(ctx), opt.ns()?).await?;
 					let key = crate::key::namespace::access::gr::new(ns.namespace_id, &stmt.ac, gr);
-					txn.set(&key, &revoke, None).await?;
+					txn.set(&key, &revoke).await?;
 				}
 				Base::Db => {
 					let (ns, db) = opt.ns_db()?;
@@ -709,7 +709,7 @@ pub async fn revoke_grant(
 						&stmt.ac,
 						gr,
 					);
-					txn.set(&key, &revoke, None).await?;
+					txn.set(&key, &revoke).await?;
 				}
 			};
 
@@ -782,7 +782,7 @@ pub async fn revoke_grant(
 				match base {
 					Base::Root => {
 						let key = crate::key::root::access::gr::new(&stmt.ac, &gr.id);
-						txn.set(&key, &gr, None).await?;
+						txn.set(&key, &gr).await?;
 					}
 					Base::Ns => {
 						let ns = txn.get_or_add_ns(Some(ctx), opt.ns()?).await?;
@@ -791,7 +791,7 @@ pub async fn revoke_grant(
 							&stmt.ac,
 							&gr.id,
 						);
-						txn.set(&key, &gr, None).await?;
+						txn.set(&key, &gr).await?;
 					}
 					Base::Db => {
 						let (ns, db) = opt.ns_db()?;
@@ -803,7 +803,7 @@ pub async fn revoke_grant(
 							&stmt.ac,
 							&gr.id,
 						);
-						txn.set(&key, &gr, None).await?;
+						txn.set(&key, &gr).await?;
 					}
 				};
 

@@ -70,7 +70,7 @@ impl AlterFunctionStatement {
 		}
 
 		let key = crate::key::database::fc::new(ns, db, &self.name);
-		txn.set(&key, &fc, None).await?;
+		txn.set(&key, &fc).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

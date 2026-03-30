@@ -58,16 +58,16 @@ impl Document {
 			let (ref o, ref i) = (Dir::Out, Dir::In);
 			// Store the left pointer edge
 			let key = crate::key::graph::new(ns, db, &l.table, &l.key, o, &rid);
-			txn.set(&key, &(), opt.version).await?;
+			txn.set(&key, &()).await?;
 			// Store the left inner edge
 			let key = crate::key::graph::new(ns, db, &rid.table, &rid.key, i, l);
-			txn.set(&key, &(), opt.version).await?;
+			txn.set(&key, &()).await?;
 			// Store the right inner edge
 			let key = crate::key::graph::new(ns, db, &rid.table, &rid.key, o, r);
-			txn.set(&key, &(), opt.version).await?;
+			txn.set(&key, &()).await?;
 			// Store the right pointer edge
 			let key = crate::key::graph::new(ns, db, &r.table, &r.key, i, &rid);
-			txn.set(&key, &(), opt.version).await?;
+			txn.set(&key, &()).await?;
 			// Store the edges on the record
 			// Mark this record as an edge type in its metadata for efficient identification
 			self.current.doc.set_record_type(RecordType::Edge);

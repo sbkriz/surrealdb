@@ -193,7 +193,7 @@ impl<'a> IndexOperation<'a> {
 			let i = Indexable::new(n, self.ix);
 			for n in i {
 				let key = self.get_non_unique_index_key(&n)?;
-				txn.set(&key, self.rid, None).await?;
+				txn.set(&key, self.rid).await?;
 			}
 		}
 		Ok(())
@@ -234,7 +234,7 @@ impl<'a> IndexOperation<'a> {
 			relative_count > 0,
 			relative_count.unsigned_abs() as u64,
 		);
-		self.ctx.tx().put(&key, &(), None).await?;
+		self.ctx.tx().put(&key, &()).await?;
 		*require_compaction = true;
 		Ok(())
 	}
@@ -339,7 +339,7 @@ impl<'a> IndexOperation<'a> {
 		nid: Uuid,
 	) -> Result<()> {
 		let ic = ikb.new_ic_key(nid);
-		tx.put(&ic, &(), None).await?;
+		tx.put(&ic, &()).await?;
 		Ok(())
 	}
 

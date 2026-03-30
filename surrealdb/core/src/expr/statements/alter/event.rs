@@ -68,7 +68,7 @@ impl AlterEventStatement {
 		}
 
 		let key = crate::key::table::ev::new(ns, db, &self.what, ev_name);
-		txn.set(&key, &ev, None).await?;
+		txn.set(&key, &ev).await?;
 
 		// Refresh the table cache
 		if let Some(tb) = txn.get_tb(ns, db, &self.what, None).await? {

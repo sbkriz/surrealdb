@@ -111,10 +111,10 @@ pub trait Transactable: requirements::TransactionRequirements {
 	async fn get(&self, key: Key, version: Option<u64>) -> Result<Option<Val>>;
 
 	/// Insert or update a key in the datastore.
-	async fn set(&self, key: Key, val: Val, version: Option<u64>) -> Result<()>;
+	async fn set(&self, key: Key, val: Val) -> Result<()>;
 
 	/// Insert a key if it doesn't exist in the datastore.
-	async fn put(&self, key: Key, val: Val, version: Option<u64>) -> Result<()>;
+	async fn put(&self, key: Key, val: Val) -> Result<()>;
 
 	/// Update a key in the datastore if the current value matches a condition.
 	async fn putc(&self, key: Key, val: Val, chk: Option<Val>) -> Result<()>;
@@ -177,7 +177,7 @@ pub trait Transactable: requirements::TransactionRequirements {
 	/// Insert or replace a key in the datastore.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn replace(&self, key: Key, val: Val) -> Result<()> {
-		self.set(key, val, None).await
+		self.set(key, val).await
 	}
 
 	/// Delete all versions of a key from the datastore.

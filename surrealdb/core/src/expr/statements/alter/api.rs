@@ -133,7 +133,7 @@ impl AlterApiStatement {
 		}
 
 		let key = crate::key::database::ap::new(ns, db, &path_name);
-		txn.set(&key, &ap, None).await?;
+		txn.set(&key, &ap).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

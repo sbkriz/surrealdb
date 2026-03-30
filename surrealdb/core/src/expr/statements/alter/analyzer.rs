@@ -64,7 +64,7 @@ impl AlterAnalyzerStatement {
 		}
 
 		let key = crate::key::database::az::new(ns, db, &self.name);
-		txn.set(&key, &az, None).await?;
+		txn.set(&key, &az).await?;
 		txn.clear_cache();
 		Ok(Value::None)
 	}

@@ -509,7 +509,7 @@ impl Building {
 		let appending_id = queue.add_update(batch_id)?;
 		// Store the appending
 		let ig = self.ikb.new_ig_key(appending_id, batch_id);
-		tx.set(&ig, &appending, None).await?;
+		tx.set(&ig, &appending).await?;
 		// The ip (primary appending) key is only needed during the initial build phase,
 		// where `check_existing_primary_appending` uses it to find the latest appending
 		// for a record being initially indexed. Once the initial build is complete
@@ -528,7 +528,7 @@ impl Building {
 			};
 			if !is_pa {
 				// If not, set it.
-				tx.set(&ip, &PrimaryAppending(appending_id, batch_id), None).await?;
+				tx.set(&ip, &PrimaryAppending(appending_id, batch_id)).await?;
 			}
 		}
 		drop(queue);

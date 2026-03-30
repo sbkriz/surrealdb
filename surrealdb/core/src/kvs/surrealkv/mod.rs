@@ -267,11 +267,7 @@ impl Transactable for Transaction {
 
 	/// Insert or update a key in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
-	async fn set(&self, key: Key, val: Val, version: Option<u64>) -> Result<()> {
-		// Versioned queries require a versioned datastore
-		if !self.versioned && version.is_some() {
-			return Err(Error::UnsupportedVersionedQueries);
-		}
+	async fn set(&self, key: Key, val: Val) -> Result<()> {
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -283,10 +279,7 @@ impl Transactable for Transaction {
 		// Load the inner transaction
 		let mut inner = self.inner.write().await;
 		// Set the key
-		match version {
-			Some(ts) => inner.set_at(&key, &val, ts)?,
-			None => inner.set(&key, &val)?,
-		}
+		inner.set(&key, &val)?;
 		// Return result
 		Ok(())
 	}
@@ -312,7 +305,7 @@ impl Transactable for Transaction {
 
 	/// Insert a key if it doesn't exist in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
-	async fn put(&self, key: Key, val: Val, version: Option<u64>) -> Result<()> {
+	async fn put(&self, key: Key, val: Val) -> Result<()> {
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -324,13 +317,9 @@ impl Transactable for Transaction {
 		// Load the inner transaction
 		let mut inner = self.inner.write().await;
 		// Set the key if empty
-		if let Some(ts) = version {
-			inner.set_at(&key, &val, ts)?;
-		} else {
-			match inner.get(&key)? {
-				None => inner.set(&key, &val)?,
-				_ => return Err(Error::TransactionKeyAlreadyExists),
-			}
+		match inner.get(&key)? {
+			None => inner.set(&key, &val)?,
+			_ => return Err(Error::TransactionKeyAlreadyExists),
 		}
 		// Return result
 		Ok(())
