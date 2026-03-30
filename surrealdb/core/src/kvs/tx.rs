@@ -1091,7 +1091,7 @@ impl DatabaseProvider for Transaction {
 		version: Option<u64>,
 	) -> Result<Option<Arc<DatabaseDefinition>>> {
 		if version.is_some() {
-			let Some(ns) = self.get_ns_by_name(ns, None).await? else {
+			let Some(ns) = self.get_ns_by_name(ns, version).await? else {
 				return Ok(None);
 			};
 			let key = crate::key::namespace::db::new(ns.namespace_id, db);
@@ -1789,7 +1789,7 @@ impl TableProvider for Transaction {
 		version: Option<u64>,
 	) -> Result<Arc<TableDefinition>> {
 		if version.is_some() {
-			let Some(db_def) = self.get_db_by_name(ns, db, None).await? else {
+			let Some(db_def) = self.get_db_by_name(ns, db, version).await? else {
 				return Err(anyhow::anyhow!(Error::DbNotFound {
 					name: db.to_owned(),
 				}));
@@ -1852,7 +1852,7 @@ impl TableProvider for Transaction {
 		version: Option<u64>,
 	) -> Result<Option<Arc<TableDefinition>>> {
 		if version.is_some() {
-			let Some(db) = self.get_db_by_name(ns, db, None).await? else {
+			let Some(db) = self.get_db_by_name(ns, db, version).await? else {
 				return Ok(None);
 			};
 			let key = crate::key::database::tb::new(db.namespace_id, db.database_id, tb);
