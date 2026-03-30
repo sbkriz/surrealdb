@@ -1744,14 +1744,6 @@ criteria = "safe-to-deploy"
 version = "0.0.18"
 criteria = "safe-to-deploy"
 
-[[exemptions.walrus]]
-version = "0.25.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.walrus-macro]]
-version = "0.25.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.wasm-bindgen]]
 version = "0.2.108"
 criteria = "safe-to-deploy"
