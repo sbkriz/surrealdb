@@ -30,7 +30,8 @@ const TARGET: &str = "surrealdb::core::kvs::surrealkv";
 
 pub struct Datastore {
 	db: Tree,
-	enable_versions: bool,
+	/// Whether the datastore supports transaction versioning
+	versioned: bool,
 	/// Commit coordinator for batching transaction commits when sync=every
 	commit_coordinator: Option<Arc<CommitCoordinator>>,
 	/// Background flusher for periodically flushing WAL when sync=<interval>
@@ -42,8 +43,8 @@ pub struct Transaction {
 	done: AtomicBool,
 	/// Is the transaction writeable?
 	write: bool,
-	/// Is versioning enabled?
-	enable_versions: bool,
+	/// Whether the datastore supports transaction versioning
+	versioned: bool,
 	/// The underlying datastore transaction
 	inner: RwLock<Tx>,
 	/// Commit coordinator for grouped fsync (when sync=every)
@@ -116,7 +117,7 @@ impl Datastore {
 		// Create and return the datastore
 		Ok(Datastore {
 			db,
-			enable_versions: config.versioned,
+			versioned: config.versioned,
 			commit_coordinator,
 			background_flusher,
 		})
@@ -158,7 +159,7 @@ impl Datastore {
 		Ok(Box::new(Transaction {
 			done: AtomicBool::new(false),
 			write,
-			enable_versions: self.enable_versions,
+			versioned: self.versioned,
 			inner: RwLock::new(txn),
 			commit_coordinator: self.commit_coordinator.clone(),
 		}))
@@ -223,6 +224,10 @@ impl Transactable for Transaction {
 	/// Checks if a key exists in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn exists(&self, key: Key, version: Option<u64>) -> Result<bool> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -241,6 +246,10 @@ impl Transactable for Transaction {
 	/// Fetch a key from the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn get(&self, key: Key, version: Option<u64>) -> Result<Option<Val>> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -259,6 +268,10 @@ impl Transactable for Transaction {
 	/// Insert or update a key in the database.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
 	async fn set(&self, key: Key, val: Val, version: Option<u64>) -> Result<()> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -360,7 +373,7 @@ impl Transactable for Transaction {
 		// Load the inner transaction
 		let mut inner = self.inner.write().await;
 		// Delete the key
-		if self.enable_versions {
+		if self.versioned {
 			inner.soft_delete(&key)?;
 		} else {
 			inner.delete(&key)?;
@@ -383,7 +396,7 @@ impl Transactable for Transaction {
 		// Load the inner transaction
 		let mut inner = self.inner.write().await;
 		// Delete the key if valid
-		if self.enable_versions {
+		if self.versioned {
 			match (inner.get(&key)?, chk) {
 				(Some(v), Some(w)) if v == w => inner.soft_delete(&key)?,
 				(None, None) => inner.soft_delete(&key)?,
@@ -445,6 +458,10 @@ impl Transactable for Transaction {
 	/// Count the total number of keys within a range.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(rng = rng.sprint()))]
 	async fn count(&self, rng: Range<Key>, version: Option<u64>) -> Result<usize> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -525,6 +542,10 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<Key>> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -575,6 +596,10 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<Key>> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -625,6 +650,10 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<(Key, Val)>> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
@@ -675,6 +704,10 @@ impl Transactable for Transaction {
 		skip: u32,
 		version: Option<u64>,
 	) -> Result<Vec<(Key, Val)>> {
+		// Versioned queries require a versioned datastore
+		if !self.versioned && version.is_some() {
+			return Err(Error::UnsupportedVersionedQueries);
+		}
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
