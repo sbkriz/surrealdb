@@ -225,13 +225,13 @@ impl Transaction {
 	/// This function fetches key-value pairs from the underlying datastore in
 	/// grouped batches.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tx", skip_all)]
-	pub async fn getp<K>(&self, key: &K) -> Result<Vec<(Key, K::ValueType)>>
+	pub async fn getp<K>(&self, key: &K, version: Option<u64>) -> Result<Vec<(Key, K::ValueType)>>
 	where
 		K: KVKey + Debug,
 	{
 		let key = key.encode_key()?;
 		self.tr
-			.getp(key)
+			.getp(key, version)
 			.await
 			.map_err(Error::from)?
 			.into_iter()

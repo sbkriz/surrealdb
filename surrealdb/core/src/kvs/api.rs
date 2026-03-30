@@ -220,14 +220,14 @@ pub trait Transactable: requirements::TransactionRequirements {
 	/// This function fetches all matching key-value pairs from the underlying
 	/// datastore in grouped batches.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::api", skip(self), fields(key = key.sprint()))]
-	async fn getp(&self, key: Key) -> Result<Vec<(Key, Val)>> {
+	async fn getp(&self, key: Key, version: Option<u64>) -> Result<Vec<(Key, Val)>> {
 		// Check to see if transaction is closed
 		if self.closed() {
 			return Err(Error::TransactionFinished);
 		}
 		// Continue with function logic
 		let range = util::to_prefix_range(key)?;
-		self.getr(range, None).await
+		self.getr(range, version).await
 	}
 
 	/// Retrieve a range of keys from the datastore.

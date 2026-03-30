@@ -588,16 +588,12 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
-		// Build the read options (with timestamp when versioned)
-		let versioned_ro;
-		let ro = if version.is_some() {
-			versioned_ro = self.read_options(version, inner);
-			&versioned_ro
-		} else {
-			&self.read_options
-		};
 		// Get the key
-		let res = inner.get_pinned_opt(key, ro)?.is_some();
+		let res = if version.is_some() {
+			inner.get_pinned_opt(key, &self.read_options(version, inner))
+		} else {
+			inner.get_pinned_opt(key, &self.read_options)
+		}?.is_some();
 		// Return result
 		Ok(res)
 	}
@@ -618,16 +614,12 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
-		// Build the read options (with timestamp when versioned)
-		let versioned_ro;
-		let ro = if version.is_some() {
-			versioned_ro = self.read_options(version, inner);
-			&versioned_ro
-		} else {
-			&self.read_options
-		};
 		// Get the key
-		let res = inner.get_opt(key, ro)?;
+		let res = if version.is_some() {
+			inner.get_opt(key, &self.read_options(version, inner))
+		} else {
+			inner.get_opt(key, &self.read_options)
+		}?;
 		// Return result
 		Ok(res)
 	}
@@ -648,16 +640,12 @@ impl Transactable for Transaction {
 		// Get the inner transaction
 		let inner =
 			inner.as_ref().ok_or_else(|| Error::Internal("expected a transaction".into()))?;
-		// Build the read options (with timestamp when versioned)
-		let versioned_ro;
-		let ro = if version.is_some() {
-			versioned_ro = self.read_options(version, inner);
-			&versioned_ro
-		} else {
-			&self.read_options
-		};
 		// Get the keys
-		let res = inner.multi_get_opt(keys, ro);
+		let res = if version.is_some() {
+			inner.multi_get_opt(keys, &self.read_options(version, inner))
+		} else {
+			inner.multi_get_opt(keys, &self.read_options)
+		};
 		// Convert result
 		let res = res.into_iter().map(|r| r.map_err(Into::into)).collect::<Result<_>>()?;
 		// Return result

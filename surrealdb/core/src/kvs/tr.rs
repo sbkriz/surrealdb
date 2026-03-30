@@ -139,12 +139,12 @@ impl Transactor {
 	/// This function fetches all matching key-value pairs from the underlying
 	/// datastore in grouped batches.
 	#[instrument(level = "trace", target = "surrealdb::core::kvs::tr", skip_all)]
-	pub async fn getp<K>(&self, key: K) -> Result<Vec<(Key, Val)>>
+	pub async fn getp<K>(&self, key: K, version: Option<u64>) -> Result<Vec<(Key, Val)>>
 	where
 		K: IntoBytes + Debug,
 	{
 		let key = key.into_vec();
-		self.inner.getp(key).await
+		self.inner.getp(key, version).await
 	}
 
 	/// Retrieve a specific range of keys from the datastore.
