@@ -988,11 +988,19 @@ impl<'ctx> Planner<'ctx> {
 	) -> Result<Arc<dyn ExecOperator>, Error> {
 		use crate::expr::statements::info::InfoStatement;
 		match info {
-			InfoStatement::Root(structured) => {
-				Ok(Arc::new(RootInfoPlan::new(structured)) as Arc<dyn ExecOperator>)
+			InfoStatement::Root(structured, version) => {
+				let version = match version {
+					Some(v) => Some(Box::pin(self.physical_expr(v)).await?),
+					None => None,
+				};
+				Ok(Arc::new(RootInfoPlan::new(structured, version)) as Arc<dyn ExecOperator>)
 			}
-			InfoStatement::Ns(structured) => {
-				Ok(Arc::new(NamespaceInfoPlan::new(structured)) as Arc<dyn ExecOperator>)
+			InfoStatement::Ns(structured, version) => {
+				let version = match version {
+					Some(v) => Some(Box::pin(self.physical_expr(v)).await?),
+					None => None,
+				};
+				Ok(Arc::new(NamespaceInfoPlan::new(structured, version)) as Arc<dyn ExecOperator>)
 			}
 			InfoStatement::Db(structured, version) => {
 				let version = match version {

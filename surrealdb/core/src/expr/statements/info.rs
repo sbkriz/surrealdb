@@ -21,9 +21,9 @@ use crate::val::{Datetime, Object, TableName, Value};
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) enum InfoStatement {
 	/// Root information
-	Root(bool),
+	Root(bool, Option<Expr>),
 	/// Namespace information
-	Ns(bool),
+	Ns(bool, Option<Expr>),
 	/// Database information
 	Db(bool, Option<Expr>),
 	/// Table information
@@ -45,22 +45,33 @@ impl InfoStatement {
 		doc: Option<&CursorDoc>,
 	) -> Result<Value> {
 		match self {
-			InfoStatement::Root(structured) => {
+			InfoStatement::Root(structured, version) => {
 				// Allowed to run?
 				opt.is_allowed(Action::View, ResourceKind::Any, &Base::Root)?;
 				// Get the transaction
 				let txn = ctx.tx();
+				// Convert the version to u64 if present
+				let version = match version {
+					Some(v) => Some(
+						stk.run(|stk| v.compute(stk, ctx, opt, None))
+							.await
+							.catch_return()?
+							.cast_to::<Datetime>()?
+							.to_version_stamp(txn.timestamp_impl().as_ref())?,
+					),
+					_ => None,
+				};
 				// Create the result set
 				if *structured {
 					let object = map! {
-						"accesses".to_string() => process(txn.all_root_accesses(None).await?),
+						"accesses".to_string() => process(txn.all_root_accesses(version).await?),
 						"defaults".to_string() => txn.get_default_config().await?
 							.map(|x| x.as_ref().clone().structure())
 							.unwrap_or_else(|| Value::Object(Default::default())),
-						"namespaces".to_string() => process(txn.all_ns(None).await?),
+						"namespaces".to_string() => process(txn.all_ns(version).await?),
 						"nodes".to_string() => process(txn.all_nodes().await?),
 						"system".to_string() => system().await,
-						"users".to_string() => process(txn.all_root_users(None).await?),
+						"users".to_string() => process(txn.all_root_users(version).await?),
 						"config".to_string() => opt.dynamic_configuration().clone().structure()
 					};
 					Ok(Value::Object(Object(object)))
@@ -68,7 +79,7 @@ impl InfoStatement {
 					let object = map! {
 						"accesses".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_root_accesses(None).await?.iter() {
+							for v in txn.all_root_accesses(version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()
@@ -78,7 +89,7 @@ impl InfoStatement {
 							.unwrap_or_else(|| Value::Object(Default::default())),
 						"namespaces".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_ns(None).await?.iter() {
+							for v in txn.all_ns(version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()
@@ -93,7 +104,7 @@ impl InfoStatement {
 						"system".to_string() => system().await,
 						"users".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_root_users(None).await?.iter() {
+							for v in txn.all_root_users(version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()
@@ -105,40 +116,51 @@ impl InfoStatement {
 					Ok(Value::Object(Object(object)))
 				}
 			}
-			InfoStatement::Ns(structured) => {
+			InfoStatement::Ns(structured, version) => {
 				// Allowed to run?
 				opt.is_allowed(Action::View, ResourceKind::Any, &Base::Ns)?;
 				// Get the NS
 				let ns = ctx.expect_ns_id(opt).await?;
 				// Get the transaction
 				let txn = ctx.tx();
+				// Convert the version to u64 if present
+				let version = match version {
+					Some(v) => Some(
+						stk.run(|stk| v.compute(stk, ctx, opt, None))
+							.await
+							.catch_return()?
+							.cast_to::<Datetime>()?
+							.to_version_stamp(txn.timestamp_impl().as_ref())?,
+					),
+					_ => None,
+				};
 				// Create the result set
 				if *structured {
 					let object = map! {
-						"accesses".to_string() => process(txn.all_ns_accesses(ns, None).await?),
-						"databases".to_string() => process(txn.all_db(ns, None).await?),
-						"users".to_string() => process(txn.all_ns_users(ns, None).await?),
+						"accesses".to_string() => process(txn.all_ns_accesses(ns, version).await?),
+						"databases".to_string() => process(txn.all_db(ns, version).await?),
+						"users".to_string() => process(txn.all_ns_users(ns, version).await?),
 					};
 					Ok(Value::Object(Object(object)))
 				} else {
 					let object = map! {
 						"accesses".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_ns_accesses(ns, None).await?.iter() {
+							for v in txn.all_ns_accesses(ns, version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()
 						},
 						"databases".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_db(ns, None).await?.iter() {
+							for v in txn.all_db(ns, version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()
 						},
 						"users".to_string() => {
 							let mut out = Object::default();
-							for v in txn.all_ns_users(ns, None).await?.iter() {
+							for v in txn.all_ns_users(ns, version).await?.iter() {
 								out.insert(v.name.clone(), v.to_sql().into());
 							}
 							out.into()

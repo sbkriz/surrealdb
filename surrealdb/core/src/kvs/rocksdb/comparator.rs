@@ -81,4 +81,51 @@ mod tests {
 		let b = make_key(b"key", 1);
 		assert_eq!(compare_without_ts(&a, true, &b, true), Ordering::Equal);
 	}
+
+	#[test]
+	fn same_key_same_ts_is_equal() {
+		let a = make_key(b"hello", 42);
+		let b = make_key(b"hello", 42);
+		assert_eq!(compare(&a, &b), Ordering::Equal);
+	}
+
+	#[test]
+	fn max_timestamp_sorts_first() {
+		let a = make_key(b"key", u64::MAX);
+		let b = make_key(b"key", 0);
+		assert_eq!(compare(&a, &b), Ordering::Less, "u64::MAX should sort before 0 (newer first)");
+	}
+
+	#[test]
+	fn empty_key_with_timestamp() {
+		let a = make_key(b"", 10);
+		let b = make_key(b"", 5);
+		assert_eq!(compare(&a, &b), Ordering::Less, "empty user keys still order by ts descending");
+	}
+
+	#[test]
+	fn compare_without_ts_no_ts_flags() {
+		let a = b"plain_key_a";
+		let b = b"plain_key_b";
+		assert_eq!(
+			compare_without_ts(a, false, b, false),
+			Ordering::Less,
+			"without ts flags, raw byte comparison"
+		);
+		assert_eq!(compare_without_ts(a, false, a, false), Ordering::Equal);
+	}
+
+	#[test]
+	fn compare_ts_equal() {
+		let a = 100u64.to_le_bytes();
+		let b = 100u64.to_le_bytes();
+		assert_eq!(compare_ts(&a, &b), Ordering::Equal);
+	}
+
+	#[test]
+	fn compare_ts_max_vs_zero() {
+		let a = u64::MAX.to_le_bytes();
+		let b = 0u64.to_le_bytes();
+		assert_eq!(compare_ts(&a, &b), Ordering::Greater);
+	}
 }
