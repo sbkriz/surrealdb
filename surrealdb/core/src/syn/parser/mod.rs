@@ -447,7 +447,12 @@ impl<'a> Parser<'a> {
 
 	pub fn unescape_string_span(&mut self, span: Span) -> Result<&str, SyntaxError> {
 		let str = self.lexer.span_str(span);
-		Lexer::unescape_string_span(str, span, &mut self.unscape_buffer, self.settings.json_string_escapes)
+		Lexer::unescape_string_span(
+			str,
+			span,
+			&mut self.unscape_buffer,
+			self.settings.json_string_escapes,
+		)
 	}
 
 	pub fn unescape_regex_span(&mut self, span: Span) -> Result<&str, SyntaxError> {

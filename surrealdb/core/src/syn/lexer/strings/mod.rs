@@ -44,7 +44,13 @@ impl Lexer<'_> {
 			let byte = reader.next().expect("Invalid string token");
 			match byte {
 				b'\\' => {
-					Self::lex_common_escape_sequence(&mut reader, span, before, buffer, json_escapes)?;
+					Self::lex_common_escape_sequence(
+						&mut reader,
+						span,
+						before,
+						buffer,
+						json_escapes,
+					)?;
 				}
 				b'"' if double => break,
 				b'\'' if !double => break,
