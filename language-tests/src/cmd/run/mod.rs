@@ -2,12 +2,12 @@ use std::io::IsTerminal;
 use std::time::Duration;
 use std::{io, mem, str, thread};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use clap::ArgMatches;
 use provisioner::{Permit, PermitError, Provisioner};
 use semver::Version;
-use surrealdb_core::dbs::Session;
 use surrealdb_core::dbs::capabilities::ExperimentalTarget;
+use surrealdb_core::dbs::Session;
 use surrealdb_core::env::VERSION;
 use surrealdb_core::kvs::Datastore;
 use surrealdb_core::syn;
@@ -18,10 +18,10 @@ use tokio::{select, time};
 use crate::cli::{Backend, ColorMode, ResultsMode};
 use crate::format::Progress;
 use crate::runner::Schedular;
-use crate::tests::TestSet;
 use crate::tests::report::{TestGrade, TestReport, TestTaskResult};
 use crate::tests::schema::NewPlannerStrategyConfig;
 use crate::tests::set::TestId;
+use crate::tests::TestSet;
 
 mod provisioner;
 mod util;
@@ -437,7 +437,7 @@ async fn check_retained_keys(dbs: &Datastore) -> Result<Vec<Vec<u8>>> {
 			surrealdb_core::kvs::LockType::Pessimistic,
 		)
 		.await?;
-	let res = txn.keysr(vec![0]..vec![0xff], 1000, 0, None).await?;
+	let res = txn.keys(vec![0]..vec![0xff], 1000, 0, None).await?;
 	txn.cancel().await?;
 	Ok(res
 		.into_iter()
