@@ -47,6 +47,9 @@ value = "[{ id: 1 }, { id: 2 }]"
 [[test.results]]
 value = "{ count: 5, roundtrip: true }"
 
+[[test.results]]
+error = "Incorrect arguments for function encoding::json::decode(). Invalid JSON"
+
 */
 
 encoding::json::decode('"hello"');
@@ -64,3 +67,4 @@ encoding::json::decode('{}');
 encoding::json::decode('{"user":{"name":"Tobie","tags":["admin","user"]}}');
 encoding::json::decode('[{"id":1},{"id":2}]');
 encoding::json::decode(encoding::json::encode({ roundtrip: true, count: 5 }));
+encoding::json::decode('hello"');
